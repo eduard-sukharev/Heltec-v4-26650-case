@@ -15,8 +15,9 @@ Outer size **86.5 × 35.5 × 40.9 mm**.
 
 - `case.py` — the model, including mock solids for the cell and board.
 - `verify.py` — collision / fit / insertion-path checks (see below).
-- `output/` — generated STL + STEP. Not checked in; regenerate with
-  `python3 case.py`.
+- `Makefile` — `make` / `make verify` / `make all` / `make clean` (see
+  "Generating the model" below).
+- `output/` — generated STL + STEP. Not checked in; regenerate with `make`.
 
 ## Design
 
@@ -262,8 +263,15 @@ thickness, component heights, and connector positions.
 
 ```bash
 pip install cadquery
-python3 case.py
+make            # generate STL/STEP into output/
+make verify     # run verify.py
+make all        # both
+make clean      # remove output/
 ```
+
+(`python3 case.py` / `python3 verify.py` directly also work — the Makefile
+just saves retyping them, and only re-runs the generator when `case.py` has
+actually changed.)
 
 Writes to `output/`:
 
