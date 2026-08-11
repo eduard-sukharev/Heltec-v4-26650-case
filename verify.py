@@ -275,6 +275,64 @@ for zs in (0.5, case.CHAMFER_RISE / 2, case.CHAMFER_RISE + 2.0):
           f"half-width {got_hw:.3f} vs expected {want:.3f}"
           if bb else "no material found")
 
+print("Checking the face plate chamfers...")
+top_wall = case.PLATE_DEPTH - case.PLATE_INNER_H
+check("window flare leaves a straight land",
+      case.WINDOW_CHAMFER < top_wall,
+      f"flare {case.WINDOW_CHAMFER:.2f} of {top_wall:.2f} mm wall, "
+      f"land {top_wall - case.WINDOW_CHAMFER:.2f} mm")
+
+# Measure the real opening at the outer face and at the ceiling
+def _window_opening(z, t=0.02):
+    slab = (
+        cq.Workplane("XY")
+        .workplane(offset=z)
+        .center(case.OLED_CENTER_X, case.OLED_CENTER_Y)
+        .box(case.OLED_W + 20, case.OLED_H + 8, t, centered=(True, True, False))
+    )
+    hole = slab.cut(case.build_plate())
+    return hole.val().BoundingBox() if volume(hole) > 0 else None
+
+_outer = _window_opening(case.PLATE_DEPTH - 0.03)
+check("window is nominal size at the outer face",
+      _outer is not None and abs(_outer.xlen - case.OLED_W) <= 0.05
+      and abs(_outer.ylen - case.OLED_H) <= 0.05,
+      f"{_outer.xlen:.2f} x {_outer.ylen:.2f} vs "
+      f"{case.OLED_W:.2f} x {case.OLED_H:.2f}" if _outer else "no opening")
+
+_inner = _window_opening(case.PLATE_INNER_H + 0.01)
+_want_w = case.OLED_W + 2 * case.WINDOW_CHAMFER
+_want_h = case.OLED_H + 2 * case.WINDOW_CHAMFER
+check("window is flared at the inside face",
+      _inner is not None and abs(_inner.xlen - (_want_w - 0.02)) <= 0.05
+      and abs(_inner.ylen - (_want_h - 0.02)) <= 0.05,
+      f"{_inner.xlen:.2f} x {_inner.ylen:.2f} vs "
+      f"{_want_w:.2f} x {_want_h:.2f}" if _inner else "no opening")
+
+# The flare must not undercut the OLED's own active area
+check("flare stays clear of the active area",
+      case.OLED_W - 2 * case.OLED_WINDOW_MARGIN >= case.OLED_ACTIVE_W - CLEAR_TOL,
+      f"window {case.OLED_W:.2f} vs active {case.OLED_ACTIVE_W:.2f} mm")
+
+# The flare widens the hole toward the board -- it must miss the posts
+flare_hw_y = (case.OLED_H + 2 * case.WINDOW_CHAMFER) / 2
+check("window flare clears the bearing posts",
+      flare_hw_y <= case.BEAR_POST_Y - case.BEAR_POST_D / 2,
+      f"flare reaches Y {flare_hw_y:.2f}, posts start at "
+      f"{case.BEAR_POST_Y - case.BEAR_POST_D / 2:.2f} mm")
+
+# Face chamfer must leave the counterbores fully on the flat top face
+top_face = case.build_plate().faces(">Z").val().BoundingBox()
+cb_edge = case.OUTER_W / 2 - case.SCREW_INSET + case.M2_HEAD_D / 2
+check("face chamfer clears the screw counterbores",
+      cb_edge <= top_face.ylen / 2,
+      f"counterbore edge {cb_edge:.2f} vs top face half-width "
+      f"{top_face.ylen / 2:.2f} mm")
+check("face chamfer does not breach the plate ceiling",
+      case.OUTER_W / 2 - case.FACE_CHAMFER >= case.INNER_W / 2,
+      f"chamfer reaches in to {case.OUTER_W / 2 - case.FACE_CHAMFER:.2f}, "
+      f"cavity wall at {case.INNER_W / 2:.2f} mm")
+
 win_lo = case.OLED_CENTER_X - case.OLED_W / 2
 win_hi = case.OLED_CENTER_X + case.OLED_W / 2
 mod_lo = case.OLED_CENTER_X - case.OLED_MODULE_W / 2

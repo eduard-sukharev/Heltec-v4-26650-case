@@ -101,6 +101,15 @@ CELL_TO_BOARD_GAP = 3.5    # cell top -> board underside (also clears screw head
 PARTING_ABOVE_CELL = 1.0   # parting line sits this far above the cell bore
 CORNER_FILLET = 2.5
 
+# --- Face plate chamfers ----------------------------------------------------
+# Break the face plate's top outer edge so the case does not read as a slab.
+FACE_CHAMFER = 1.5
+# The display cutout is flared on its *inside* face: the opening is narrowest
+# at the outer surface (crisp bezel) and widens toward the display, so the
+# panel is not vignetted at an angle. Must stay below the top wall thickness
+# or there is no straight land left at the window edge.
+WINDOW_CHAMFER = 1.0
+
 # --- Bottom chamfer (base only) ---------------------------------------------
 # The two long bottom edges are chamfered away, so the base's end-on profile
 # becomes a truncated octagon: narrow flat bottom, two sloped flanks, two
@@ -296,6 +305,35 @@ def bottom_chamfer_profile():
     )
 
 
+def _oled_window_cutter():
+    """Display cutout, in plate-local coordinates.
+
+    A straight land through the outer part of the top wall, plus a 45 deg
+    flare on the inside face. The taper is extended below the ceiling so the
+    boolean never has to resolve a face coplanar with it, while the flare
+    still passes through exactly OLED_W + 2*WINDOW_CHAMFER at the ceiling.
+    """
+    c = WINDOW_CHAMFER
+    ext = 0.5
+    flare = (
+        cq.Workplane("XY")
+        .workplane(offset=PLATE_INNER_H - ext)
+        .center(OLED_CENTER_X, OLED_CENTER_Y)
+        .rect(OLED_W + 2 * (c + ext), OLED_H + 2 * (c + ext))
+        .workplane(offset=c + ext)
+        .rect(OLED_W, OLED_H)
+        .loft(ruled=True)
+    )
+    land = (
+        cq.Workplane("XY")
+        .workplane(offset=PLATE_INNER_H + c)
+        .center(OLED_CENTER_X, OLED_CENTER_Y)
+        .rect(OLED_W, OLED_H)
+        .extrude(PLATE_DEPTH - (PLATE_INNER_H + c) + 1)
+    )
+    return flare.union(land)
+
+
 def _usb_cutter():
     """USB-C opening, in global coordinates. It straddles the parting line,
     so it has to be cut from both halves."""
@@ -396,6 +434,11 @@ def build_plate():
                      max(CORNER_FILLET - WALL, 0.5))
     )
 
+    # Break the top outer edge. Done here, while the top face is still a
+    # plain rectangle, so the edge selection cannot pick up the window or
+    # the screw counterbores cut later.
+    plate = plate.faces(">Z").edges().chamfer(FACE_CHAMFER)
+
     post_h = PLATE_INNER_H - BOARD_TOP_LOCAL
 
     # Screw posts at the board's mounting holes (USB-C end), tapped for M2
@@ -428,14 +471,8 @@ def build_plate():
             .extrude(post_h)
         )
 
-    # OLED window through the top face
-    plate = plate.cut(
-        cq.Workplane("XY")
-        .workplane(offset=PLATE_DEPTH - WALL - 1)
-        .center(OLED_CENTER_X, OLED_CENTER_Y)
-        .rect(OLED_W, OLED_H)
-        .extrude(WALL + 2)
-    )
+    # OLED window through the top face, flared on the inside
+    plate = plate.cut(_oled_window_cutter())
 
     # Screw clearance holes with socket-head counterbores
     for (x, y) in screw_positions:
