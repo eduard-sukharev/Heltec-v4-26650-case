@@ -124,12 +124,19 @@ CHAMFER_ASPECT = 1.0
 MIN_CHAMFER_WALL = 2.2     # material left between the chamfer and the cell bore
 MIN_BOTTOM_W = 14.0        # flat width the case stands on
 
-# The same treatment on the two short ends, so the bottom chamfer runs
-# continuously around the whole perimeter instead of stopping at the corners.
-# Limited by the material between the end of the cell bore and the outer face.
+# The two short ends get only a small break, not the large flank -- the big
+# chamfer exists to delete material outboard of the *cylinder*, which only
+# has dead corners along its length. At the ends the cell's flat face is
+# right there, so a large chamfer would eat the end stop for no gain.
+# This is just an edge break, sized to match FACE_CHAMFER.
 END_CHAMFER_ASPECT = 1.0
+END_CHAMFER = 1.5           # small chamfer on the two short bottom edges
 MIN_END_CHAMFER_WALL = 2.2  # material left between the end chamfer and the bore end
 MIN_BOTTOM_L = 50.0         # flat length the case stands on
+
+# Every remaining sharp junction around the chamfered bottom -- where the
+# large flanks run out against the end walls -- gets the same small break.
+PROFILE_EDGE_CHAMFER = 1.0
 
 # --- Board support posts (on the PLATE) -------------------------------------
 POST_D = M2_BOSS_D = 5.5   # screw posts, at the board's mounting holes
@@ -242,9 +249,12 @@ def end_chamfer_outer_half_length(z):
 
 
 def _max_end_chamfer_run():
-    """Largest end chamfer keeping MIN_END_CHAMFER_WALL between the sloped
-    face and the end of the cell bore. The bore's X extent is constant, so
-    the pinch is at the lowest height the bore reaches."""
+    """Ceiling on the end chamfer, kept as a guard rather than a target.
+
+    END_CHAMFER is deliberately a small edge break, so this normally has no
+    effect -- but if anyone raises it, this stops the chamfer eating into the
+    cell bore's end (which doubles as the axial end stop). The bore's X
+    extent is constant, so the pinch is at the lowest height it reaches."""
     bore_lo = CELL_AXIS_Z - CELL_BORE_R
     bore_hi = CELL_AXIS_Z + CELL_BORE_R
 
@@ -259,7 +269,7 @@ def _max_end_chamfer_run():
                 return False
         return True
 
-    hi = (OUTER_L - MIN_BOTTOM_L) / 2.0
+    hi = min(END_CHAMFER, (OUTER_L - MIN_BOTTOM_L) / 2.0)
     if hi <= 0:
         return 0.0
     if wall_ok(hi):
@@ -360,6 +370,29 @@ def bottom_chamfer_profile():
     )
 
 
+class FlankRunoutSelector(cq.Selector):
+    """The four edges where the large bottom flanks run out against the end
+    walls. They are the only edges on the part that are diagonal in Y/Z while
+    holding X constant, which makes them cheap to pick out exactly -- far
+    more robust than indexing into an edge list that shifts whenever another
+    feature is added."""
+
+    def filter(self, objectList):
+        out = []
+        for e in objectList:
+            try:
+                start, end = e.startPoint(), e.endPoint()
+            except Exception:
+                continue
+            d = end.sub(start)
+            if d.Length < 1e-6:
+                continue
+            d = d.multiply(1.0 / d.Length)
+            if abs(d.x) < 1e-6 and abs(d.y) > 1e-3 and abs(d.z) > 1e-3:
+                out.append(e)
+        return out
+
+
 def end_chamfer_profile():
     """Same idea as bottom_chamfer_profile(), but for the two short ends, so
     the bottom chamfer wraps the whole perimeter. Where the two prisms meet
@@ -414,7 +447,7 @@ def _usb_cutter():
 # BASE half -- battery tub only
 # ---------------------------------------------------------------------------
 
-def build_base():
+def build_base(break_runout=True):
     base = _rounded_box(OUTER_L, OUTER_W, BASE_DEPTH, 0, CORNER_FILLET).cut(
         _rounded_box(INNER_L, INNER_W, BASE_DEPTH, FLOOR,
                      max(CORNER_FILLET - WALL, 0.5))
@@ -470,11 +503,18 @@ def build_base():
             .extrude(-min(SCREW_LEN, BASE_DEPTH - 1.0))
         )
 
-    # Shave the bottom edges to the octagonal profile -- long edges first,
-    # then the two short ends so the chamfer wraps right around. Applied last
-    # so they trim the screw bosses' lower corners along with the shell.
+    # Shave the bottom edges to the octagonal profile. The large flanks go on
+    # the two long edges only -- that is where the round cell leaves dead
+    # corners along its length. The short ends get only a small break, since
+    # the cell's flat end face is right behind them.
     base = base.intersect(bottom_chamfer_profile())
     base = base.intersect(end_chamfer_profile())
+
+    # Break the four remaining sharp junctions, where the large flanks run
+    # out against the end walls, so nothing around the profile is left sharp.
+    # break_runout=False is only for verify.py, to measure what this removes.
+    if break_runout:
+        base = base.edges(FlankRunoutSelector()).chamfer(PROFILE_EDGE_CHAMFER)
 
     return base.cut(_usb_cutter())
 

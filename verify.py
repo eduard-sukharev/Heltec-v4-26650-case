@@ -276,6 +276,26 @@ for zs in (0.5, case.CHAMFER_RISE / 2, case.CHAMFER_RISE + 2.0):
           if bb else "no material found")
 
 print("Checking the end chamfers...")
+# The large flank belongs on the long edges only -- the round cell only
+# leaves dead corners along its length, not past its flat ends.
+check("large chamfer is confined to the long edges",
+      case.END_CHAMFER_RUN < case.CHAMFER_RUN,
+      f"long {case.CHAMFER_RUN:.2f} mm vs end {case.END_CHAMFER_RUN:.2f} mm")
+check("end chamfer is a small break",
+      case.END_CHAMFER_RUN <= case.FACE_CHAMFER + CLEAR_TOL,
+      f"{case.END_CHAMFER_RUN:.2f} mm (face chamfer {case.FACE_CHAMFER:.2f} mm)")
+
+# The four flank/end-wall junctions must actually be broken, not just
+# assumed -- rebuild without the break and compare.
+_unbroken = case.build_base(break_runout=False)
+_removed = volume(_unbroken) - volume(base)
+check("flank runout junctions are broken",
+      _removed > 1.0,
+      f"{_removed:.1f} mm^3 removed by the {case.PROFILE_EDGE_CHAMFER:.1f} mm break")
+check("runout break did not fragment the base",
+      len(base.val().Solids()) == 1,
+      f"{len(base.val().Solids())} solid(s)")
+
 check("end chamfer overhang is printable",
       case.END_CHAMFER_OVERHANG_DEG <= 45.0 + 1e-6,
       f"{case.END_CHAMFER_OVERHANG_DEG:.2f} deg from vertical (limit 45)")
