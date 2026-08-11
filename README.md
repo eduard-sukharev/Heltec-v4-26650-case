@@ -1,5 +1,10 @@
 # Heltec V4 + 26650 Case
 
+![Current state of the model](docs/preview.png)
+
+*Regenerated from `case.py` on every change (see `make preview` below) —
+this is always the actual current model, not a stale illustration.*
+
 Parametric [CadQuery](https://cadquery.readthedocs.io/) model of a
 two-piece 3D-printable enclosure for:
 
@@ -15,8 +20,15 @@ Outer size **86.5 × 35.5 × 40.9 mm**.
 
 - `case.py` — the model, including mock solids for the cell and board.
 - `verify.py` — collision / fit / insertion-path checks (see below).
-- `Makefile` — `make` / `make verify` / `make all` / `make clean` (see
-  "Generating the model" below).
+- `render_preview.py` — renders `docs/preview.png`, the image at the top of
+  this file.
+- `Makefile` — `make` / `make preview` / `make verify` / `make all` /
+  `make clean` (see "Generating the model" below).
+- `docs/preview.png` — **checked in**, unlike everything under `output/`.
+  It exists purely so this README shows the model's current state without
+  anyone having to build it themselves; `make` (the bare, no-argument form)
+  regenerates it, and it should be committed alongside any change to
+  `case.py`.
 - `output/` — generated STL + STEP. Not checked in; regenerate with `make`.
 
 ## Design
@@ -262,16 +274,21 @@ thickness, component heights, and connector positions.
 ## Generating the model
 
 ```bash
-pip install cadquery
-make            # generate STL/STEP into output/
+pip install cadquery cairosvg
+make            # generate STL/STEP into output/, refresh docs/preview.png
+make preview    # just refresh docs/preview.png
 make verify     # run verify.py
-make all        # both
-make clean      # remove output/
+make all        # generate, refresh the preview, then verify
+make clean      # remove output/ (docs/preview.png is untouched -- it's checked in)
 ```
 
-(`python3 case.py` / `python3 verify.py` directly also work — the Makefile
-just saves retyping them, and only re-runs the generator when `case.py` has
-actually changed.)
+(`python3 case.py` / `python3 render_preview.py` / `python3 verify.py`
+directly also work — the Makefile just saves retyping them, and only
+re-runs each step when its inputs have actually changed.)
+
+If you edit `case.py`, run `make` and commit the updated
+`docs/preview.png` along with it — that's what keeps the image at the top
+of this README honest.
 
 Writes to `output/`:
 
