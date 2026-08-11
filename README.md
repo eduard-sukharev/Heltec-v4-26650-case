@@ -39,7 +39,8 @@ The two halves divide the job cleanly:
   - Four screw bosses, placed *beyond the ends of the shaft*.
   - A **tongue** around the top perimeter that the plate's skirt closes
     over, with 0.15 mm fit clearance.
-  - A large **chamfer on both long bottom edges** (see below).
+  - A large **chamfer running right around the bottom** — both long edges
+    and both short ends (see below).
 
 - **Plate half — the face plate, and it carries the board.** It has:
   - A **cutout over the onboard OLED**, sized from the drawing's 27.28 mm
@@ -60,14 +61,16 @@ halves from a single shared cutter.
 
 ### The octagonal bottom profile
 
-Both long bottom edges of the base are chamfered away, so its end-on section
-reads as a truncated octagon: a narrow flat bottom, two sloped flanks, two
-vertical sides, and a flat top where the face plate closes it off.
+All four bottom edges of the base are chamfered away — both long edges and
+both short ends — so its end-on section reads as a truncated octagon: a
+narrow flat bottom, two sloped flanks, two vertical sides, and a flat top
+where the face plate closes it off. The chamfer runs continuously around
+the perimeter, and the two profile prisms mitre themselves at the corners.
 
 This is not just cosmetic. The cell is round, so the corners of a
 rectangular tub are dead material — the chamfer deletes exactly the wedge
-that sits outboard of the cell's curve. It takes the base from **38.8 cm³
-down to 28.8 cm³, a 26% saving**, without touching any clearance.
+that sits outboard of the cell's curve. It takes the base from **38.8 cm³ down
+to 26.7 cm³, a 31% saving**, without touching any clearance.
 
 The chamfer is *derived*, not hardcoded. `_max_chamfer_run()` grows it until
 one of two limits binds:
@@ -81,6 +84,19 @@ At the current settings the bottom flat binds first, giving a **10.75 mm
 run and rise** with **3.39 mm** of wall still over the bore. Raising
 `MIN_BOTTOM_W` gives a tippier but lighter case; the hard ceiling from the
 wall limit alone is 11.94 mm.
+
+The **end chamfer** is derived the same way, but against a different limit:
+the cell bore's X extent is constant, so the pinch is at the lowest height
+the bore reaches (Z = 2.0 mm, where the bore is tangent to the floor). That
+caps it at **10.06 mm**, near enough to the long-edge chamfer that the
+corners read as one continuous feature. The case ends up standing on a
+**66.38 × 14.00 mm** flat.
+
+Both chamfers eat the lower corners of the screw bosses — at Z = 0 the
+bosses are gone entirely, emerging from the chamfered corner as they rise
+and becoming full by Z ≈ 7.5 mm. That is harmless, since the screws only
+engage the top 8 mm, but `verify.py` checks the material ring around every
+pilot hole anyway.
 
 **Printability** is the reason the slope is exactly 45°. `CHAMFER_ASPECT`
 is rise/run, and at 1.0 the flank is a 45° overhang off the bed — the usual
@@ -172,10 +188,13 @@ body, then checks:
 - **Containment** — each component's bounding box lies inside the case.
 - **Support** — a probe at each of the four post locations confirms the
   plate's posts actually land on the board, rather than the board floating.
-- **Bottom chamfer** — overhang stays within 45°, enough wall is left over
-  the cell bore, the standing flat is usable, and the chamfer clears the SMA
-  hole and the boss pilot holes. The built solid is also *sampled* at three
-  heights and compared against the intended profile.
+- **Bottom and end chamfers** — overhang stays within 45°, enough wall is
+  left over the cell bore and over the bore's ends, the standing flat is
+  usable, and the chamfers clear the SMA hole and the boss pilot holes. The
+  built solid is *sampled* at three heights against each intended profile,
+  the bottom face is measured against both, and the material ring around
+  every boss pilot hole is checked since the chamfers cut the bosses'
+  lower corners.
 - **Face plate chamfers** — the window's real opening is measured at both
   the outer and inside faces, the flare leaves a straight land and clears
   the bearing posts, and the face chamfer leaves the counterbores on the
@@ -202,7 +221,8 @@ All checks currently pass. Key measured clearances:
 | Headroom above OLED module | 0.50 mm |
 | Chamfer wall over the cell bore | 3.39 mm (min 2.20) |
 | Chamfer overhang | 45.0° (limit 45°) |
-| Flat the case stands on | 14.00 mm |
+| Flat the case stands on | 66.38 × 14.00 mm |
+| End chamfer wall over the bore end | 2.20 mm (min 2.20) |
 | Window at outer face | 28.48 × 14.84 mm |
 | Window at inside face (flared) | 30.46 × 16.82 mm |
 | Straight land at window edge | 1.20 mm |
@@ -232,6 +252,7 @@ thickness, component heights, and connector positions.
 | `BOARD_HOLE_Y`, `BOARD_HOLE_FROM_END` | Mounting holes — these now locate the plate's screw posts, so getting them right matters |
 | `BEAR_POST_Y` | Bearing posts; must clear `OLED_MODULE_H/2` and stay inside `BOARD_W/2` |
 | `CHAMFER_ASPECT`, `MIN_BOTTOM_W` | Bottom chamfer: slope and standing flat |
+| `END_CHAMFER_ASPECT`, `MIN_BOTTOM_L` | End chamfer: slope and standing flat |
 | `FACE_CHAMFER`, `WINDOW_CHAMFER` | Face plate edge break and display-cutout flare |
 
 `OLED_ACTIVE_H` is *derived* from the dimensioned active width assuming a
@@ -262,9 +283,9 @@ Writes to `output/`:
   cleanly, but drop `WINDOW_CHAMFER` if your printer struggles with it.
 - The base is ~29 cm³ of enclosed volume including the cradle pedestal —
   print it with modest infill rather than solid.
-- The bottom chamfer prints as a 45° expanding overhang straight off the
-  bed, so it needs no support, but it does mean the first layer is only
-  14 mm wide — use a brim if adhesion is marginal.
+- Both bottom chamfers print as 45° expanding overhangs straight off the
+  bed, so they need no support, but the first layer is only
+  66.38 × 14.00 mm — use a brim if adhesion is marginal.
 - M2 pilot holes are sized (1.6 mm) for self-tapping M2 screws into
   PLA/PETG; swap in heat-set inserts (and re-check `M2_PILOT_D` /
   `M2_BOSS_D`) for reusable fastening.

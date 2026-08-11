@@ -123,6 +123,13 @@ CHAMFER_ASPECT = 1.0
 MIN_CHAMFER_WALL = 2.2     # material left between the chamfer and the cell bore
 MIN_BOTTOM_W = 14.0        # flat width the case stands on
 
+# The same treatment on the two short ends, so the bottom chamfer runs
+# continuously around the whole perimeter instead of stopping at the corners.
+# Limited by the material between the end of the cell bore and the outer face.
+END_CHAMFER_ASPECT = 1.0
+MIN_END_CHAMFER_WALL = 2.2  # material left between the end chamfer and the bore end
+MIN_BOTTOM_L = 50.0         # flat length the case stands on
+
 # --- Board support posts (on the PLATE) -------------------------------------
 POST_D = M2_BOSS_D = 5.5   # screw posts, at the board's mounting holes
 BEAR_POST_D = 3.0          # bearing posts at the far end, no screw
@@ -225,6 +232,53 @@ BOTTOM_W = OUTER_W - 2 * CHAMFER_RUN
 # Overhang measured from vertical; must stay <= 45 deg to print unsupported
 CHAMFER_OVERHANG_DEG = math.degrees(math.atan2(CHAMFER_RUN, CHAMFER_RISE))
 
+
+def end_chamfer_outer_half_length(z):
+    """Half-length of the base's outer surface at height z, after chamfering."""
+    if z >= END_CHAMFER_RISE:
+        return OUTER_L / 2
+    return OUTER_L / 2 - END_CHAMFER_RUN * (1.0 - z / END_CHAMFER_RISE)
+
+
+def _max_end_chamfer_run():
+    """Largest end chamfer keeping MIN_END_CHAMFER_WALL between the sloped
+    face and the end of the cell bore. The bore's X extent is constant, so
+    the pinch is at the lowest height the bore reaches."""
+    bore_lo = CELL_AXIS_Z - CELL_BORE_R
+    bore_hi = CELL_AXIS_Z + CELL_BORE_R
+
+    def wall_ok(run):
+        rise = run * END_CHAMFER_ASPECT
+        for i in range(201):
+            z = rise * i / 200.0
+            if not (bore_lo <= z <= bore_hi):
+                continue          # no bore at this height, nothing to clear
+            outer = OUTER_L / 2 - run * (1.0 - (z / rise if rise else 1.0))
+            if outer - CELL_BORE_L / 2 < MIN_END_CHAMFER_WALL:
+                return False
+        return True
+
+    hi = (OUTER_L - MIN_BOTTOM_L) / 2.0
+    if hi <= 0:
+        return 0.0
+    if wall_ok(hi):
+        return hi
+    lo = 0.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if wall_ok(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+END_CHAMFER_RUN = _max_end_chamfer_run()
+END_CHAMFER_RISE = END_CHAMFER_RUN * END_CHAMFER_ASPECT
+BOTTOM_L = OUTER_L - 2 * END_CHAMFER_RUN
+END_CHAMFER_OVERHANG_DEG = math.degrees(
+    math.atan2(END_CHAMFER_RUN, END_CHAMFER_RISE))
+
 # Board and cell are both centred at X=0, Y=0. USB-C faces +X, antenna -X.
 BOARD_CONNECTOR_END_X = BOARD_L / 2
 BOARD_FAR_END_X = -BOARD_L / 2
@@ -302,6 +356,31 @@ def bottom_chamfer_profile():
         .polyline(pts)
         .close()
         .extrude((OUTER_L + 2) / 2, both=True)
+    )
+
+
+def end_chamfer_profile():
+    """Same idea as bottom_chamfer_profile(), but for the two short ends, so
+    the bottom chamfer wraps the whole perimeter. Where the two prisms meet
+    the corners resolve into a clean mitre on their own."""
+    hl = OUTER_L / 2
+    top = BASE_DEPTH + 1
+    inner = hl - END_CHAMFER_RUN
+    pts = [
+        (-inner, -1.0),
+        (inner, -1.0),
+        (inner, 0.0),
+        (hl, END_CHAMFER_RISE),
+        (hl, top),
+        (-hl, top),
+        (-hl, END_CHAMFER_RISE),
+        (-inner, 0.0),
+    ]
+    return (
+        cq.Workplane("XZ")
+        .polyline(pts)
+        .close()
+        .extrude((OUTER_W + 2) / 2, both=True)
     )
 
 
@@ -406,9 +485,11 @@ def build_base():
             .extrude(-min(SCREW_LEN, BASE_DEPTH - 1.0))
         )
 
-    # Shave both long bottom edges to the octagonal profile. Applied last so
-    # it trims the screw bosses' lower flanks along with the shell.
+    # Shave the bottom edges to the octagonal profile -- long edges first,
+    # then the two short ends so the chamfer wraps right around. Applied last
+    # so they trim the screw bosses' lower corners along with the shell.
     base = base.intersect(bottom_chamfer_profile())
+    base = base.intersect(end_chamfer_profile())
 
     return base.cut(_usb_cutter())
 
@@ -606,4 +687,6 @@ if __name__ == "__main__":
           f"Z {SHAFT_Z0:.2f} -> {SHAFT_Z1:.2f}")
     print(f"Bottom chamfer: run {CHAMFER_RUN:.2f} rise {CHAMFER_RISE:.2f} mm, "
           f"{CHAMFER_OVERHANG_DEG:.1f} deg overhang, stands on {BOTTOM_W:.2f} mm")
+    print(f"End chamfer   : run {END_CHAMFER_RUN:.2f} rise {END_CHAMFER_RISE:.2f} mm, "
+          f"{END_CHAMFER_OVERHANG_DEG:.1f} deg overhang, stands on {BOTTOM_L:.2f} mm")
     print(f"Parting line  : Z {PARTING_Z:.2f}   board underside Z {BOARD_UNDER_Z:.2f}")

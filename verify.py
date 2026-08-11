@@ -275,6 +275,74 @@ for zs in (0.5, case.CHAMFER_RISE / 2, case.CHAMFER_RISE + 2.0):
           f"half-width {got_hw:.3f} vs expected {want:.3f}"
           if bb else "no material found")
 
+print("Checking the end chamfers...")
+check("end chamfer overhang is printable",
+      case.END_CHAMFER_OVERHANG_DEG <= 45.0 + 1e-6,
+      f"{case.END_CHAMFER_OVERHANG_DEG:.2f} deg from vertical (limit 45)")
+
+# Wall left between the end chamfer and the end of the cell bore
+_bore_lo = case.CELL_AXIS_Z - case.CELL_BORE_R
+_bore_hi = case.CELL_AXIS_Z + case.CELL_BORE_R
+worst_end = (None, 1e9)
+for i in range(401):
+    z = case.END_CHAMFER_RISE * i / 400.0
+    if not (_bore_lo <= z <= _bore_hi):
+        continue
+    w = case.end_chamfer_outer_half_length(z) - case.CELL_BORE_L / 2
+    if w < worst_end[1]:
+        worst_end = (z, w)
+check("end chamfer leaves wall over the bore end",
+      worst_end[0] is None or worst_end[1] >= case.MIN_END_CHAMFER_WALL - CLEAR_TOL,
+      f"min {worst_end[1]:.2f} mm at Z={worst_end[0]:.2f} "
+      f"(limit {case.MIN_END_CHAMFER_WALL:.2f})" if worst_end[0] is not None
+      else "bore does not reach the chamfer")
+
+check("end chamfer below the SMA hole",
+      case.END_CHAMFER_RISE <= case.SMA_Z - case.SMA_HOLE_D / 2,
+      f"chamfer tops out at {case.END_CHAMFER_RISE:.2f}, "
+      f"SMA hole starts at {case.SMA_Z - case.SMA_HOLE_D / 2:.2f} mm")
+
+check("case stands on a usable flat (length)",
+      case.BOTTOM_L >= case.MIN_BOTTOM_L - CLEAR_TOL,
+      f"{case.BOTTOM_L:.2f} mm (limit {case.MIN_BOTTOM_L:.2f})")
+
+# The bottom face should now be the full chamfered rectangle
+_bot = base.faces("<Z").val().BoundingBox()
+check("bottom face matches both chamfers",
+      abs(_bot.xlen - case.BOTTOM_L) <= 0.05 and abs(_bot.ylen - case.BOTTOM_W) <= 0.05,
+      f"{_bot.xlen:.2f} x {_bot.ylen:.2f} vs "
+      f"{case.BOTTOM_L:.2f} x {case.BOTTOM_W:.2f} mm")
+
+# Sample the real solid against the intended end profile
+for zs in (0.5, case.END_CHAMFER_RISE / 2, case.END_CHAMFER_RISE + 2.0):
+    slab = (
+        cq.Workplane("XY")
+        .workplane(offset=zs)
+        .box(case.OUTER_L + 4, 1.0, 0.02, centered=(True, True, False))
+    )
+    got = intersect_volume(base, slab)
+    bb = bbox(base.intersect(slab)) if got > 0 else None
+    want = case.end_chamfer_outer_half_length(zs + 0.02)
+    got_hl = max(abs(bb.xmin), abs(bb.xmax)) if bb else None
+    check(f"solid matches end profile at Z={zs:.2f}",
+          got_hl is not None and abs(got_hl - want) <= 0.03,
+          f"half-length {got_hl:.3f} vs expected {want:.3f}" if bb else "no material")
+
+# The chamfers eat the bosses' lower corners; the pilot holes must survive
+for (x, y) in case.screw_positions:
+    ring = (
+        cq.Workplane("XY")
+        .workplane(offset=case.BASE_DEPTH - 2.0)
+        .center(x, y)
+        .circle(case.M2_BOSS_D / 2)
+        .extrude(1.5)
+    )
+    want_v = volume(ring) - math.pi * (case.M2_PILOT_D / 2) ** 2 * 1.5
+    got_v = intersect_volume(base, ring)
+    check(f"boss intact at ({x:.1f},{y:.1f})",
+          abs(got_v - want_v) <= 0.5,
+          f"{got_v:.2f} of {want_v:.2f} mm^3")
+
 print("Checking the face plate chamfers...")
 top_wall = case.PLATE_DEPTH - case.PLATE_INNER_H
 check("window flare leaves a straight land",
@@ -364,8 +432,10 @@ print(f"  insertion shaft     : {case.SHAFT_L:.1f} x {case.SHAFT_W:.1f} mm, "
 print(f"  cell axis / top Z   : {case.CELL_AXIS_Z:.2f} / {case.CELL_TOP_Z:.2f} mm")
 print(f"  parting line Z      : {case.PARTING_Z:.2f} mm")
 print(f"  bottom chamfer      : run {case.CHAMFER_RUN:.2f} / rise "
-      f"{case.CHAMFER_RISE:.2f} mm @ {case.CHAMFER_OVERHANG_DEG:.1f} deg, "
-      f"stands on {case.BOTTOM_W:.2f} mm")
+      f"{case.CHAMFER_RISE:.2f} mm @ {case.CHAMFER_OVERHANG_DEG:.1f} deg")
+print(f"  end chamfer         : run {case.END_CHAMFER_RUN:.2f} / rise "
+      f"{case.END_CHAMFER_RISE:.2f} mm @ {case.END_CHAMFER_OVERHANG_DEG:.1f} deg")
+print(f"  stands on           : {case.BOTTOM_L:.2f} x {case.BOTTOM_W:.2f} mm")
 print(f"  board underside Z   : {case.BOARD_UNDER_Z:.2f} mm")
 print(f"  base volume         : {volume(base) / 1000.0:.2f} cm^3")
 print(f"  plate volume        : {volume(plate) / 1000.0:.2f} cm^3")
