@@ -3,20 +3,22 @@ Parametric CadQuery case for a Heltec V4 board (ESP32-S3, no GPS variant),
 IPEX-to-SMA antenna pigtail, and a 26650 Li-ion cell.
 
 Two-piece design:
-  - BASE half:  battery cradle + board support rails + cable/antenna cutouts
-  - PLATE half: face plate with a cutout over the onboard OLED
+  - BASE half:  battery tub -- cradle plus a straight rectangular shaft so
+                the cell drops in vertically. Carries no board features.
+  - PLATE half: face plate with the OLED window; carries the board on posts
+                that hang from its ceiling.
 
 The cell lies along the case's long axis, centred directly *underneath* the
-board; the board rests on rails that run along both long side walls. The
-two halves close over each other (a tongue on BASE seats inside a matching
-skirt on PLATE) and are fastened with four M2 socket-head cap screws.
+board. Because the cell is both wider and longer than the board, anything
+supporting the board from the base would stand inside the cell's insertion
+path -- so the board hangs from the plate instead. See README.md.
 
 Board dimensions come from a Heltec mechanical reference drawing; some
 component heights are still estimates -- see README.md.
 
 Usage:
     python3 case.py       # export STL/STEP of both halves + components
-    python3 verify.py     # collision / fit checks
+    python3 verify.py     # collision / fit / insertion-path checks
 """
 
 import cadquery as cq
@@ -36,13 +38,13 @@ BOARD_T = 1.6            # PCB thickness (est -- standard 1.6mm FR4)
 BOARD_CORNER_CHAMFER = 2.0   # angled corners shown on the drawing
 BOARD_CLEARANCE = 0.4    # slack around the board footprint
 
-# Mounting holes flanking the connector end (est -- the reference drawing
-# does not dimension them). NOTE: in this stacked layout these holes sit
-# directly over the cell, so they cannot take screw posts; the board is
-# retained by rails below and hold-down ribs on the plate instead.
+# Mounting holes flanking the USB-C end (est -- the reference drawing does
+# not dimension them). The OLED module covers most of the rest of the board,
+# so this is the only end with room for screw posts.
 BOARD_HOLE_D = 2.2
 BOARD_HOLE_Y = 9.25
 BOARD_HOLE_FROM_END = 3.5
+BOARD_SCREW_LEN = 6.0    # M2x6 SHCS, board -> plate posts
 
 # OLED module. Active width 27.28 and module width 33.28 are dimensioned;
 # module height 18.56 is taken from the drawing's side view. Active height
@@ -52,6 +54,7 @@ OLED_ACTIVE_H = OLED_ACTIVE_W * 64.0 / 128.0    # = 13.64
 OLED_MODULE_W = 33.28
 OLED_MODULE_H = 18.56
 OLED_MODULE_THICK = 4.0      # (est) module height above the PCB top face
+OLED_TOP_GAP = 0.5           # clearance between module top and window underside
 OLED_WINDOW_MARGIN = 0.6     # window is cut this much larger than the active area
 OLED_W = OLED_ACTIVE_W + 2 * OLED_WINDOW_MARGIN
 OLED_H = OLED_ACTIVE_H + 2 * OLED_WINDOW_MARGIN
@@ -93,42 +96,52 @@ FLOOR = 2.0                # base floor thickness under the cradle
 LID_RECESS = 5.0           # depth of the split-line tongue/skirt
 TONGUE_FRAC = 0.6          # fraction of WALL removed to form the tongue
 FIT_CLEARANCE = 0.15       # slack between base tongue and plate skirt
-CELL_TO_BOARD_GAP = 2.0    # clear gap between cell top and board underside
+CELL_TO_BOARD_GAP = 3.5    # cell top -> board underside (also clears screw heads)
+PARTING_ABOVE_CELL = 1.0   # parting line sits this far above the cell bore
 CORNER_FILLET = 2.5
 
-# Board support rails along the long side walls (the cell is wider than the
-# board, so floor-mounted posts are impossible -- see README).
-RAIL_BEARING = 1.5         # how far each rail reaches under the board edge
-RAIL_INNER_Y = BOARD_W / 2 - RAIL_BEARING
+# --- Board support posts (on the PLATE) -------------------------------------
+POST_D = M2_BOSS_D = 5.5   # screw posts, at the board's mounting holes
+BEAR_POST_D = 3.0          # bearing posts at the far end, no screw
+BEAR_POST_Y = 11.0         # outboard of the OLED module, inboard of the board edge
 
 # --- M2 socket-head cap screw fasteners -------------------------------------
 M2_SHAFT_D = 2.2           # clearance hole for the screw shaft
 M2_HEAD_D = 4.0            # socket head diameter clearance
 M2_HEAD_H = 2.2            # socket head height clearance
 M2_PILOT_D = 1.6           # pilot hole in the boss that receives the screw
-M2_BOSS_D = 5.5
-SCREW_LEN = 8.0            # M2x8 SHCS assumed
+SCREW_LEN = 8.0            # M2x8 SHCS for the case halves
 SCREW_INSET = 6.0          # boss centre inset from the outer corner
 
 # --- Derived Z levels (from the outside of the base floor, Z=0) -------------
 CELL_AXIS_Z = FLOOR + CELL_BORE_R
-CELL_TOP_Z = FLOOR + 2 * CELL_BORE_R
-BOARD_UNDER_Z = CELL_TOP_Z + CELL_TO_BOARD_GAP
-BOARD_TOP_Z = BOARD_UNDER_Z + BOARD_T
+CELL_BORE_TOP_Z = FLOOR + 2 * CELL_BORE_R
+CELL_TOP_Z = CELL_AXIS_Z + CELL_D / 2          # top of the actual cell
 
-BASE_DEPTH = BOARD_TOP_Z + LID_RECESS
-PLATE_INNER_H = max(LID_RECESS, OLED_MODULE_THICK + 1.0)
+BOARD_UNDER_Z = CELL_BORE_TOP_Z + CELL_TO_BOARD_GAP
+BOARD_TOP_Z = BOARD_UNDER_Z + BOARD_T
+OLED_TOP_Z = BOARD_TOP_Z + OLED_MODULE_THICK
+USB_TOP_Z = BOARD_TOP_Z + USB_H
+
+# Parting line sits just above the cell, so the base is a pure battery tub.
+PARTING_Z = CELL_BORE_TOP_Z + PARTING_ABOVE_CELL
+BASE_DEPTH = PARTING_Z + LID_RECESS
+
+# Plate is modelled with its own Z=0 at the parting line.
+BOARD_UNDER_LOCAL = BOARD_UNDER_Z - PARTING_Z
+BOARD_TOP_LOCAL = BOARD_TOP_Z - PARTING_Z
+PLATE_INNER_H = max(OLED_TOP_Z - PARTING_Z + OLED_TOP_GAP, LID_RECESS)
 PLATE_DEPTH = PLATE_INNER_H + WALL
-TOTAL_HEIGHT = (BASE_DEPTH - LID_RECESS) + PLATE_DEPTH
+TOTAL_HEIGHT = PARTING_Z + PLATE_DEPTH
 
 # --- Derived plan dimensions ------------------------------------------------
 # Width is set by the cell (which is wider than the board) plus side walls.
 INNER_W = max(BOARD_W + 2 * BOARD_CLEARANCE, CELL_D + CELL_CLEARANCE) + 4.0
 OUTER_W = INNER_W + 2 * WALL
 
-# Length must leave room for the corner screw bosses *beyond* the ends of
-# the cell bore -- the bore spans the full width, so a boss anywhere within
-# the bore's length would be carved into by it.
+# Length must leave room for the corner screw bosses *beyond* the ends of the
+# cell's insertion shaft -- the shaft spans most of the cavity width, so a
+# boss anywhere within its length would stand in the cell's way.
 BOSS_END_MARGIN = 1.5
 _min_half_len = CELL_BORE_L / 2 + BOSS_END_MARGIN + M2_BOSS_D / 2 + SCREW_INSET
 OUTER_L = 2 * max(_min_half_len, BOARD_L / 2 + WALL + 4.0)
@@ -144,12 +157,21 @@ screw_positions = [
 # Board and cell are both centred at X=0, Y=0. USB-C faces +X, antenna -X.
 BOARD_CONNECTOR_END_X = BOARD_L / 2
 BOARD_FAR_END_X = -BOARD_L / 2
+BOARD_HOLE_X = BOARD_CONNECTOR_END_X - BOARD_HOLE_FROM_END
+BEAR_POST_X = BOARD_FAR_END_X + BOARD_HOLE_FROM_END
 
-# SMA bulkhead sits in the -X end wall, above the cradle and clear of the
-# cell's end, centred between the cradle top and the parting line.
-SMA_Z = (CELL_AXIS_Z + BOARD_TOP_Z) / 2
-# Clear axial depth available for the connector body before it meets the cell
-SMA_CLEAR_DEPTH = (INNER_L / 2) - (CELL_BORE_L / 2)
+# --- Cell insertion shaft ---------------------------------------------------
+# Straight rectangular prism, from the widest point of the cradle bore up
+# through the top of the base. The cell drops in vertically along this.
+SHAFT_W = 2 * CELL_BORE_R      # = cell dia + clearance
+SHAFT_L = CELL_BORE_L
+SHAFT_Z0 = CELL_AXIS_Z         # cradle's widest point
+SHAFT_Z1 = BASE_DEPTH          # open at the top of the base
+
+# SMA bulkhead sits in the -X end wall, above the cradle and below the
+# parting line, and stops short of the cell's end.
+SMA_Z = (CELL_AXIS_Z + PARTING_Z) / 2
+SMA_CLEAR_DEPTH = (INNER_L / 2) - (SHAFT_L / 2)
 
 
 def _rounded_box(length, width, height, z0, fillet):
@@ -164,21 +186,40 @@ def _rounded_box(length, width, height, z0, fillet):
     return wp
 
 
-def _cell_bore(radius=None, length=None):
+def cell_bore():
     """Cylindrical pocket for the cell, axis along X at the cradle height."""
-    r = CELL_BORE_R if radius is None else radius
-    ln = CELL_BORE_L if length is None else length
     return (
         cq.Workplane("YZ")
-        .workplane(offset=-ln / 2)
+        .workplane(offset=-CELL_BORE_L / 2)
         .center(0, CELL_AXIS_Z)
-        .circle(r)
-        .extrude(ln)
+        .circle(CELL_BORE_R)
+        .extrude(CELL_BORE_L)
+    )
+
+
+def insertion_shaft():
+    """The volume the cell sweeps as it is lowered into the cradle."""
+    return (
+        cq.Workplane("XY")
+        .workplane(offset=SHAFT_Z0)
+        .box(SHAFT_L, SHAFT_W, SHAFT_Z1 - SHAFT_Z0, centered=(True, True, False))
+    )
+
+
+def _usb_cutter():
+    """USB-C opening, in global coordinates. It straddles the parting line,
+    so it has to be cut from both halves."""
+    return (
+        cq.Workplane("YZ")
+        .workplane(offset=OUTER_L / 2 + 2)
+        .center(0, BOARD_TOP_Z + USB_H / 2)
+        .rect(USB_W + 1.0, USB_H + 1.0)
+        .extrude(-(WALL + 8))
     )
 
 
 # ---------------------------------------------------------------------------
-# BASE half
+# BASE half -- battery tub only
 # ---------------------------------------------------------------------------
 
 def build_base():
@@ -190,61 +231,40 @@ def build_base():
     # Cradle pedestal: fills the cavity up to the cell's axis height. The
     # bore is cut from it below, leaving a half-round saddle that hugs the
     # cell, and solid blocks past each end of the bore that act as end stops.
-    pedestal = _rounded_box(INNER_L, INNER_W, CELL_AXIS_Z - FLOOR, FLOOR,
-                            max(CORNER_FILLET - WALL, 0.5))
-    base = base.union(pedestal)
-
-    # Board support rails along both long walls, from the pedestal top up to
-    # the board underside. The bore cut below trims whatever intrudes into
-    # the cell, so the rails end up hugging the cell's upper flanks.
-    rail_len = min(BOARD_L + 4.0, INNER_L)
-    for sign in (1, -1):
-        y0 = sign * RAIL_INNER_Y
-        y1 = sign * (INNER_W / 2)
-        rail = (
-            cq.Workplane("XY")
-            .workplane(offset=FLOOR)
-            .center(0, (y0 + y1) / 2)
-            .rect(rail_len, abs(y1 - y0))
-            .extrude(BOARD_UNDER_Z - FLOOR)
-        )
-        base = base.union(rail)
-
-    # Cut the cell bore last so it trims the pedestal and the rails together
-    base = base.cut(_cell_bore())
-
-    # USB-C cutout in the +X end wall, just above the board's top face
-    usb_cut = (
-        cq.Workplane("YZ")
-        .workplane(offset=OUTER_L / 2)
-        .center(0, BOARD_TOP_Z + USB_H / 2)
-        .rect(USB_W + 1.0, USB_H + 1.0)
-        .extrude(-WALL - 2)
+    base = base.union(
+        _rounded_box(INNER_L, INNER_W, CELL_AXIS_Z - FLOOR, FLOOR,
+                     max(CORNER_FILLET - WALL, 0.5))
     )
-    base = base.cut(usb_cut)
+    base = base.cut(cell_bore())
+
+    # Guarantee the vertical drop-in path. The cavity above the cradle is
+    # already open, so this normally removes nothing -- it is kept as an
+    # explicit guard so any feature added here fails verify.py instead of
+    # silently trapping the cell.
+    base = base.cut(insertion_shaft())
 
     # SMA antenna bulkhead hole through the -X end wall
-    sma_cut = (
+    base = base.cut(
         cq.Workplane("YZ")
         .workplane(offset=-OUTER_L / 2)
         .center(0, SMA_Z)
         .circle(SMA_HOLE_D / 2)
         .extrude(WALL + 2)
     )
-    base = base.cut(sma_cut)
 
     # Split-line tongue: remove the outer part of the wall over the top
     # LID_RECESS so the plate's skirt can close over it.
-    step = _rounded_box(OUTER_L, OUTER_W, LID_RECESS,
-                        BASE_DEPTH - LID_RECESS, CORNER_FILLET).cut(
-        _rounded_box(OUTER_L - 2 * WALL * TONGUE_FRAC,
-                     OUTER_W - 2 * WALL * TONGUE_FRAC,
-                     LID_RECESS + 1, BASE_DEPTH - LID_RECESS,
-                     max(CORNER_FILLET - WALL * TONGUE_FRAC, 0.3))
+    base = base.cut(
+        _rounded_box(OUTER_L, OUTER_W, LID_RECESS, PARTING_Z, CORNER_FILLET).cut(
+            _rounded_box(OUTER_L - 2 * WALL * TONGUE_FRAC,
+                         OUTER_W - 2 * WALL * TONGUE_FRAC,
+                         LID_RECESS + 1, PARTING_Z,
+                         max(CORNER_FILLET - WALL * TONGUE_FRAC, 0.3))
+        )
     )
-    base = base.cut(step)
 
-    # Screw bosses, full height, with pilot holes drilled from the top
+    # Screw bosses, full height, with pilot holes drilled from the top.
+    # These sit beyond the ends of the shaft (enforced by OUTER_L above).
     for (x, y) in screw_positions:
         base = base.union(
             cq.Workplane("XY").center(x, y).circle(M2_BOSS_D / 2).extrude(BASE_DEPTH)
@@ -258,16 +278,15 @@ def build_base():
             .extrude(-min(SCREW_LEN, BASE_DEPTH - 1.0))
         )
 
-    return base
+    return base.cut(_usb_cutter())
 
 
 # ---------------------------------------------------------------------------
-# PLATE half
+# PLATE half -- face plate, carries the board
 # ---------------------------------------------------------------------------
 
 def build_plate():
-    """Face plate, modelled in its own frame with Z=0 at its underside
-    (which lands on BOARD_TOP_Z when assembled)."""
+    """Modelled with Z=0 at the plate's underside, which lands on PARTING_Z."""
     plate = _rounded_box(OUTER_L, OUTER_W, PLATE_DEPTH, 0, CORNER_FILLET)
 
     # Interior: a skirt pocket over the bottom LID_RECESS that swallows the
@@ -283,19 +302,37 @@ def build_plate():
                      max(CORNER_FILLET - WALL, 0.5))
     )
 
-    # Hold-down ribs: press on the board's long edges from above, opposite
-    # the base's rails. Kept clear of the OLED module and the screw holes.
-    rib_len = min(BOARD_L - 8.0, OUTER_L - 4 * SCREW_INSET)
-    for sign in (1, -1):
-        y0 = sign * RAIL_INNER_Y
-        y1 = sign * (INNER_W / 2)
-        rib = (
+    post_h = PLATE_INNER_H - BOARD_TOP_LOCAL
+
+    # Screw posts at the board's mounting holes (USB-C end), tapped for M2
+    # screws driven up through the board from below.
+    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
+        plate = plate.union(
             cq.Workplane("XY")
-            .center(0, (y0 + y1) / 2)
-            .rect(rib_len, abs(y1 - y0))
-            .extrude(PLATE_INNER_H)
+            .workplane(offset=BOARD_TOP_LOCAL)
+            .center(BOARD_HOLE_X, y)
+            .circle(POST_D / 2)
+            .extrude(post_h)
         )
-        plate = plate.union(rib)
+    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
+        plate = plate.cut(
+            cq.Workplane("XY")
+            .workplane(offset=BOARD_TOP_LOCAL)
+            .center(BOARD_HOLE_X, y)
+            .circle(M2_PILOT_D / 2)
+            .extrude(min(BOARD_SCREW_LEN - BOARD_T + 0.5, post_h - 0.8))
+        )
+
+    # Bearing posts at the far end -- no screw, they just locate the board's
+    # far edge. Placed outboard of the OLED module, inboard of the board edge.
+    for y in (BEAR_POST_Y, -BEAR_POST_Y):
+        plate = plate.union(
+            cq.Workplane("XY")
+            .workplane(offset=BOARD_TOP_LOCAL)
+            .center(BEAR_POST_X, y)
+            .circle(BEAR_POST_D / 2)
+            .extrude(post_h)
+        )
 
     # OLED window through the top face
     plate = plate.cut(
@@ -319,7 +356,7 @@ def build_plate():
             .extrude(M2_HEAD_H + 1)
         )
 
-    return plate
+    return plate.cut(_usb_cutter().translate((0, 0, -PARTING_Z)))
 
 
 # ---------------------------------------------------------------------------
@@ -350,7 +387,7 @@ def build_board():
         pcb = pcb.cut(
             cq.Workplane("XY")
             .workplane(offset=BOARD_UNDER_Z)
-            .center(BOARD_CONNECTOR_END_X - BOARD_HOLE_FROM_END, y)
+            .center(BOARD_HOLE_X, y)
             .circle(BOARD_HOLE_D / 2)
             .extrude(BOARD_T)
         )
@@ -362,7 +399,6 @@ def build_board():
         .rect(OLED_MODULE_W, OLED_MODULE_H)
         .extrude(OLED_MODULE_THICK)
     )
-
     usb = (
         cq.Workplane("XY")
         .workplane(offset=BOARD_TOP_Z)
@@ -370,7 +406,6 @@ def build_board():
         .rect(USB_DEPTH, USB_W)
         .extrude(USB_H)
     )
-
     ufl = (
         cq.Workplane("XY")
         .workplane(offset=BOARD_TOP_Z)
@@ -378,8 +413,22 @@ def build_board():
         .rect(UFL_SIZE, UFL_SIZE)
         .extrude(UFL_H)
     )
-
     return pcb.union(oled).union(usb).union(ufl)
+
+
+def build_board_screws():
+    """M2 screw heads under the board -- they must clear the cell."""
+    heads = None
+    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
+        h = (
+            cq.Workplane("XY")
+            .workplane(offset=BOARD_UNDER_Z - M2_HEAD_H)
+            .center(BOARD_HOLE_X, y)
+            .circle(M2_HEAD_D / 2)
+            .extrude(M2_HEAD_H)
+        )
+        heads = h if heads is None else heads.union(h)
+    return heads
 
 
 def build_sma_body():
@@ -394,12 +443,13 @@ def build_sma_body():
 
 
 def assemble():
-    """All four solids positioned in the assembled coordinate frame."""
+    """All solids positioned in the assembled coordinate frame."""
     return {
         "base": build_base(),
-        "plate": build_plate().translate((0, 0, BOARD_TOP_Z)),
+        "plate": build_plate().translate((0, 0, PARTING_Z)),
         "cell": build_cell(),
         "board": build_board(),
+        "screws": build_board_screws(),
     }
 
 
@@ -420,5 +470,7 @@ if __name__ == "__main__":
     assy.save("output/heltec_v4_case_assembly.step")
 
     print("Exported STL/STEP to ./output/")
-    print(f"Outer size : {OUTER_L:.1f} x {OUTER_W:.1f} x {TOTAL_HEIGHT:.1f} mm")
-    print(f"Cell axis Z: {CELL_AXIS_Z:.2f}   board underside Z: {BOARD_UNDER_Z:.2f}")
+    print(f"Outer size    : {OUTER_L:.1f} x {OUTER_W:.1f} x {TOTAL_HEIGHT:.1f} mm")
+    print(f"Insertion shaft: {SHAFT_L:.1f} x {SHAFT_W:.1f} mm, "
+          f"Z {SHAFT_Z0:.2f} -> {SHAFT_Z1:.2f}")
+    print(f"Parting line  : Z {PARTING_Z:.2f}   board underside Z {BOARD_UNDER_Z:.2f}")
