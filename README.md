@@ -55,10 +55,12 @@ size rather than stretching the case to fit both parts in a row.
 
 ## ⚠️ Dimensions you should verify before printing
 
-This was built from best-effort estimates of the Heltec V4 form factor
-(shared 25.5 × 51 mm footprint with the V3/V3.2 boards) since the exact
-board could not be measured directly in this environment. **Before
-printing, measure your actual board and update the constants at the top of
+Board outline (50.2 × 25.5 mm), OLED active width (27.28 mm), and mounting
+hole placement are now taken from a Heltec mechanical reference drawing.
+PCB thickness, OLED height, and connector positions are still best-effort
+estimates, since the drawing doesn't dimension them and the exact board
+could not be measured directly in this environment. **Before printing,
+measure your actual board and update the constants at the top of
 `case.py`:**
 
 | Constant | What to check |

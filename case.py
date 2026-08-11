@@ -31,24 +31,38 @@ import os
 # ---------------------------------------------------------------------------
 
 # --- Heltec V4 board -------------------------------------------------------
-BOARD_L = 51.0          # board length (along battery axis)
+# Overall footprint and OLED width taken directly from a Heltec mechanical
+# reference drawing (50.2 x 25.5 mm outline, 2.54mm x 17 header pitch,
+# 27.28mm active display width / 33.28mm OLED module width). The drawing
+# does not dimension OLED height or PCB thickness, so those remain estimates
+# -- see README for what's measured vs. assumed.
+BOARD_L = 50.2           # board length (along battery axis)
 BOARD_W = 25.5           # board width
-BOARD_T = 1.6            # PCB thickness
+BOARD_T = 1.6            # PCB thickness (not dimensioned in the reference; std 1.6mm FR4)
 BOARD_CLEARANCE = 0.3    # slack around the board footprint
 
-# Mounting holes (Heltec V3/V3.2/V4 share a 2-hole pattern near one end,
-# diameter 2.2 mm for M2 self-tapping / press-fit standoffs).
+# Mounting holes: reference drawing shows two holes flanking the connector
+# on one short edge, inset ~3.5mm from that edge and ~3.5mm from the
+# top/bottom edges (i.e. 25.5/2 - 3.5 = 9.25mm off the board centreline).
 BOARD_HOLE_D = 2.2
-BOARD_HOLE_INSET_X = 3.0     # from each short edge... only one end is used
-BOARD_HOLE_Y = 3.0           # distance of each hole from the board centreline
-BOARD_HOLE_FROM_TOP = 4.0    # distance of hole row from the connector-end edge
+BOARD_HOLE_Y = 9.25          # distance of each hole from the board centreline
+BOARD_HOLE_FROM_TOP = 3.5    # distance of hole row from the connector-end edge
 
-# OLED (onboard 0.96" SSD1306, offset toward one long edge in the upper
-# portion of the board, viewed active area only)
-OLED_W = 23.0
-OLED_H = 13.2
-OLED_CENTER_FROM_TOP = 16.0   # distance from the USB/connector edge to OLED centre
-OLED_CENTER_X_OFFSET = 0.0    # OLED is centred on the board width on V3/V4
+# OLED: 27.28mm active width is dimensioned directly; height is not given
+# in the reference drawing, so ~14mm is assumed (128x64-style ~2:1 aspect).
+# The window is cut slightly larger than the active area for fit tolerance.
+OLED_ACTIVE_W = 27.28
+OLED_ACTIVE_H_EST = 14.0     # estimated -- not dimensioned in the source drawing
+OLED_MODULE_W = 33.28        # OLED module/PCB outer width, for reference only
+OLED_WINDOW_MARGIN = 0.6     # extra margin added to the active area for the cutout
+OLED_W = OLED_ACTIVE_W + 2 * OLED_WINDOW_MARGIN
+OLED_H = OLED_ACTIVE_H_EST + 2 * OLED_WINDOW_MARGIN
+# Distance from the connector-end edge (BOARD_CONNECTOR_END_X) to the OLED
+# centre, measured off the reference drawing's horizontal dimensions
+# (OLED centre sits ~30.95mm from the mounting-hole edge / 19.25mm from the
+# opposite edge on the 50.2mm-long board).
+OLED_CENTER_FROM_TOP = 31.0
+OLED_CENTER_X_OFFSET = 0.0    # OLED is centred on the board width
 
 # USB-C connector (centred on the short edge)
 USB_W = 9.0
