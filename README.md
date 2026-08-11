@@ -66,8 +66,8 @@ The two halves divide the job cleanly:
     between the two.
   - Four M2 clearance holes with socket-head counterbores.
   - A skirt that closes over the base's tongue.
-  - A **1.5 mm chamfer around the top outer edge**, and a **1 mm flare on
-    the inside of the display cutout** (see below).
+  - A **1.5 mm chamfer around the top outer edge**, and a matching **1 mm
+    bevel on the face side of the display cutout** (see below).
 
 The **USB-C opening straddles the parting line**, so it is cut from both
 halves from a single shared cutter.
@@ -127,18 +127,25 @@ Two separate chamfers, for different reasons:
   83.5 × 32.5 mm, which still leaves the M2 counterbores (outer edge at
   13.75 mm) fully on the flat, with 2.5 mm to spare.
 
-- **`WINDOW_CHAMFER` (1.0 mm)** flares the display cutout on its **inside**
-  face. The opening is narrowest at the outer surface, giving a crisp bezel
-  at 28.48 × 14.84 mm, and widens to 30.48 × 16.84 mm at the ceiling so the
-  panel isn't vignetted when viewed at an angle. With a 2.2 mm top wall
-  that leaves a **1.2 mm straight land** at the window edge.
+- **`WINDOW_CHAMFER` (1.0 mm)** bevels the display cutout on its **face**
+  side, at the same 45° as the perimeter chamfer. The aperture is
+  28.48 × 14.84 mm at the inside face and opens out to 30.48 × 16.84 mm at
+  the visible surface. With a 2.2 mm top wall that leaves a **1.2 mm
+  straight land** behind the aperture.
 
-The window is cut as a single lofted solid rather than by chamfering edges
-after the fact, which is far more robust. Its taper is deliberately extended
-0.5 mm below the ceiling so the boolean never has to resolve a face coplanar
-with it, while the flare still passes through exactly
-`OLED_W + 2 × WINDOW_CHAMFER` *at* the ceiling. `verify.py` measures the
-real opening at both faces rather than trusting that.
+Putting the bevel on the face side rather than the inside means the hole
+**only ever widens with height**. Printed window-up, every layer is
+supported by the one below, so there is no overhang anywhere in the
+window — unlike an inside flare, which would have to bridge inward across
+the opening. `verify.py` asserts this directly by sampling the opening
+through the wall and requiring it to widen monotonically.
+
+The bevel is produced with CadQuery's `.chamfer()` on the finished top
+edge, so the cutter stays a plain rectangular prism and the aperture is
+exactly `OLED_W × OLED_H` by construction. `.faces(">Z").edges()` would
+also catch the plate's outer perimeter, so the window's four edges are
+isolated with a `BoxSelector` around them. `verify.py` measures the real
+opening at both faces rather than trusting any of that.
 
 ### Why the board hangs from the plate
 
@@ -209,9 +216,10 @@ body, then checks:
   every boss pilot hole is checked since the chamfers cut the bosses'
   lower corners.
 - **Face plate chamfers** — the window's real opening is measured at both
-  the outer and inside faces, the flare leaves a straight land and clears
-  the bearing posts, and the face chamfer leaves the counterbores on the
-  flat without breaching the plate ceiling.
+  the outer and inside faces, the opening widens monotonically through the
+  wall (so the bevel is never an overhang), the aperture leaves a straight
+  land and clears the bearing posts, and the face chamfer leaves the
+  counterbores on the flat without breaching the plate ceiling.
 - **Design clearances** — cell slack, cell-to-board gap, screw-head
   clearance over the cell, bosses clearing the shaft, SMA body clearing the
   cell end, SMA hole landing in solid wall, bearing posts threading the gap
@@ -236,9 +244,9 @@ All checks currently pass. Key measured clearances:
 | Chamfer overhang | 45.0° (limit 45°) |
 | Flat the case stands on | 66.38 × 14.00 mm |
 | End chamfer wall over the bore end | 2.20 mm (min 2.20) |
-| Window at outer face | 28.48 × 14.84 mm |
-| Window at inside face (flared) | 30.46 × 16.82 mm |
-| Straight land at window edge | 1.20 mm |
+| Window aperture (inside face) | 28.48 × 14.84 mm |
+| Window at face side (bevelled) | 30.46 × 16.82 mm |
+| Straight land behind the aperture | 1.20 mm |
 | Face chamfer to counterbore | 16.25 vs 13.75 mm |
 
 Note that a zero-overlap result alone would also be satisfied by a part
@@ -266,7 +274,7 @@ thickness, component heights, and connector positions.
 | `BEAR_POST_Y` | Bearing posts; must clear `OLED_MODULE_H/2` and stay inside `BOARD_W/2` |
 | `CHAMFER_ASPECT`, `MIN_BOTTOM_W` | Bottom chamfer: slope and standing flat |
 | `END_CHAMFER_ASPECT`, `MIN_BOTTOM_L` | End chamfer: slope and standing flat |
-| `FACE_CHAMFER`, `WINDOW_CHAMFER` | Face plate edge break and display-cutout flare |
+| `FACE_CHAMFER`, `WINDOW_CHAMFER` | Face plate edge break and display-cutout bevel |
 
 `OLED_ACTIVE_H` is *derived* from the dimensioned active width assuming a
 128×64 panel; if your display differs, set it directly.
@@ -303,9 +311,9 @@ Writes to `output/`:
   support moved off the base, the cradle bore is now a plain half-round
   trough with no overhang beyond its own arc — no support needed.
 - The plate's posts print as simple vertical pillars in that orientation.
-- With the plate printed window-up, the display cutout's inside flare is a
-  45° overhang bridging inward across the opening — short enough to bridge
-  cleanly, but drop `WINDOW_CHAMFER` if your printer struggles with it.
+- The display cutout's bevel is on the face side, so printed window-up the
+  opening only widens as it rises — no overhang and no bridging anywhere in
+  the window.
 - The base is ~29 cm³ of enclosed volume including the cradle pedestal —
   print it with modest infill rather than solid.
 - Both bottom chamfers print as 45° expanding overhangs straight off the

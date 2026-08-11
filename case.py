@@ -104,10 +104,11 @@ CORNER_FILLET = 2.5
 # --- Face plate chamfers ----------------------------------------------------
 # Break the face plate's top outer edge so the case does not read as a slab.
 FACE_CHAMFER = 1.5
-# The display cutout is flared on its *inside* face: the opening is narrowest
-# at the outer surface (crisp bezel) and widens toward the display, so the
-# panel is not vignetted at an angle. Must stay below the top wall thickness
-# or there is no straight land left at the window edge.
+# The display cutout is bevelled on its *face* side, matching FACE_CHAMFER's
+# 45 deg. The aperture stays OLED_W x OLED_H at the inside face and opens out
+# toward the viewer. Printed window-up the hole only ever widens with height,
+# so every layer is supported by the one below -- no overhang at all. Must
+# stay below the top wall thickness or no straight land is left.
 WINDOW_CHAMFER = 1.0
 
 # --- Bottom chamfer (base only) ---------------------------------------------
@@ -385,32 +386,16 @@ def end_chamfer_profile():
 
 
 def _oled_window_cutter():
-    """Display cutout, in plate-local coordinates.
-
-    A straight land through the outer part of the top wall, plus a 45 deg
-    flare on the inside face. The taper is extended below the ceiling so the
-    boolean never has to resolve a face coplanar with it, while the flare
-    still passes through exactly OLED_W + 2*WINDOW_CHAMFER at the ceiling.
-    """
-    c = WINDOW_CHAMFER
-    ext = 0.5
-    flare = (
+    """Display cutout, in plate-local coordinates: a plain rectangular hole
+    through the top wall. The bevel is added afterwards by chamfering the
+    resulting top edge, not by shaping this cutter."""
+    return (
         cq.Workplane("XY")
-        .workplane(offset=PLATE_INNER_H - ext)
-        .center(OLED_CENTER_X, OLED_CENTER_Y)
-        .rect(OLED_W + 2 * (c + ext), OLED_H + 2 * (c + ext))
-        .workplane(offset=c + ext)
-        .rect(OLED_W, OLED_H)
-        .loft(ruled=True)
-    )
-    land = (
-        cq.Workplane("XY")
-        .workplane(offset=PLATE_INNER_H + c)
+        .workplane(offset=PLATE_INNER_H - 1)
         .center(OLED_CENTER_X, OLED_CENTER_Y)
         .rect(OLED_W, OLED_H)
-        .extrude(PLATE_DEPTH - (PLATE_INNER_H + c) + 1)
+        .extrude(PLATE_DEPTH - PLATE_INNER_H + 2)
     )
-    return flare.union(land)
 
 
 def _usb_cutter():
@@ -552,8 +537,29 @@ def build_plate():
             .extrude(post_h)
         )
 
-    # OLED window through the top face, flared on the inside
+    # OLED window through the top face, then bevel its outer edge. Using the
+    # chamfer tool on the finished edge keeps the cutter a plain prism, so
+    # the aperture stays exactly OLED_W x OLED_H at its narrowest.
+    #
+    # .faces(">Z").edges() would also pick up the plate's outer perimeter, so
+    # the window's four edges are isolated with a box selector around them.
     plate = plate.cut(_oled_window_cutter())
+    _pad = WINDOW_CHAMFER + 1.0
+    plate = (
+        plate.faces(">Z")
+        .edges(
+            cq.selectors.BoxSelector(
+                (OLED_CENTER_X - OLED_W / 2 - _pad,
+                 OLED_CENTER_Y - OLED_H / 2 - _pad,
+                 PLATE_DEPTH - 1.0),
+                (OLED_CENTER_X + OLED_W / 2 + _pad,
+                 OLED_CENTER_Y + OLED_H / 2 + _pad,
+                 PLATE_DEPTH + 1.0),
+                boundingbox=True,
+            )
+        )
+        .chamfer(WINDOW_CHAMFER)
+    )
 
     # Screw clearance holes with socket-head counterbores
     for (x, y) in screw_positions:

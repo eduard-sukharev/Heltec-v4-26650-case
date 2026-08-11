@@ -345,9 +345,9 @@ for (x, y) in case.screw_positions:
 
 print("Checking the face plate chamfers...")
 top_wall = case.PLATE_DEPTH - case.PLATE_INNER_H
-check("window flare leaves a straight land",
+check("window bevel leaves a straight land",
       case.WINDOW_CHAMFER < top_wall,
-      f"flare {case.WINDOW_CHAMFER:.2f} of {top_wall:.2f} mm wall, "
+      f"bevel {case.WINDOW_CHAMFER:.2f} of {top_wall:.2f} mm wall, "
       f"land {top_wall - case.WINDOW_CHAMFER:.2f} mm")
 
 # Measure the real opening at the outer face and at the ceiling
@@ -356,38 +356,64 @@ def _window_opening(z, t=0.02):
         cq.Workplane("XY")
         .workplane(offset=z)
         .center(case.OLED_CENTER_X, case.OLED_CENTER_Y)
-        .box(case.OLED_W + 20, case.OLED_H + 8, t, centered=(True, True, False))
+        .box(case.OLED_W + 20, case.OLED_H + 12, t, centered=(True, True, False))
     )
     hole = slab.cut(case.build_plate())
     return hole.val().BoundingBox() if volume(hole) > 0 else None
 
-_outer = _window_opening(case.PLATE_DEPTH - 0.03)
-check("window is nominal size at the outer face",
-      _outer is not None and abs(_outer.xlen - case.OLED_W) <= 0.05
-      and abs(_outer.ylen - case.OLED_H) <= 0.05,
-      f"{_outer.xlen:.2f} x {_outer.ylen:.2f} vs "
-      f"{case.OLED_W:.2f} x {case.OLED_H:.2f}" if _outer else "no opening")
-
+# The bevel is on the face side, so the aperture is the *inside* face and
+# the opening only ever widens toward the viewer.
 _inner = _window_opening(case.PLATE_INNER_H + 0.01)
+check("aperture is nominal at the inside face",
+      _inner is not None and abs(_inner.xlen - case.OLED_W) <= 0.05
+      and abs(_inner.ylen - case.OLED_H) <= 0.05,
+      f"{_inner.xlen:.2f} x {_inner.ylen:.2f} vs "
+      f"{case.OLED_W:.2f} x {case.OLED_H:.2f}" if _inner else "no opening")
+
+_outer = _window_opening(case.PLATE_DEPTH - 0.03)
 _want_w = case.OLED_W + 2 * case.WINDOW_CHAMFER
 _want_h = case.OLED_H + 2 * case.WINDOW_CHAMFER
-check("window is flared at the inside face",
-      _inner is not None and abs(_inner.xlen - (_want_w - 0.02)) <= 0.05
-      and abs(_inner.ylen - (_want_h - 0.02)) <= 0.05,
-      f"{_inner.xlen:.2f} x {_inner.ylen:.2f} vs "
-      f"{_want_w:.2f} x {_want_h:.2f}" if _inner else "no opening")
+check("window is bevelled open at the face",
+      _outer is not None and abs(_outer.xlen - (_want_w - 0.02)) <= 0.05
+      and abs(_outer.ylen - (_want_h - 0.02)) <= 0.05,
+      f"{_outer.xlen:.2f} x {_outer.ylen:.2f} vs "
+      f"{_want_w:.2f} x {_want_h:.2f}" if _outer else "no opening")
 
-# The flare must not undercut the OLED's own active area
-check("flare stays clear of the active area",
+# Printed window-up the hole must never narrow with height, or the bevel
+# would be an overhang. This is the property the face-side bevel buys us.
+_prev = None
+_monotonic = True
+for i in range(21):
+    _z = case.PLATE_INNER_H + (top_wall - 0.02) * i / 20.0
+    _bb = _window_opening(_z)
+    if _bb is None:
+        _monotonic = False
+        break
+    if _prev is not None and (_bb.xlen < _prev[0] - 1e-6 or _bb.ylen < _prev[1] - 1e-6):
+        _monotonic = False
+        break
+    _prev = (_bb.xlen, _bb.ylen)
+check("window never narrows with height (no overhang)", _monotonic,
+      "opening widens monotonically from inside face to outer face")
+
+# The aperture must not encroach on the OLED's own active area
+check("aperture clears the active area",
       case.OLED_W - 2 * case.OLED_WINDOW_MARGIN >= case.OLED_ACTIVE_W - CLEAR_TOL,
-      f"window {case.OLED_W:.2f} vs active {case.OLED_ACTIVE_W:.2f} mm")
+      f"aperture {case.OLED_W:.2f} vs active {case.OLED_ACTIVE_W:.2f} mm")
 
-# The flare widens the hole toward the board -- it must miss the posts
-flare_hw_y = (case.OLED_H + 2 * case.WINDOW_CHAMFER) / 2
-check("window flare clears the bearing posts",
-      flare_hw_y <= case.BEAR_POST_Y - case.BEAR_POST_D / 2,
-      f"flare reaches Y {flare_hw_y:.2f}, posts start at "
+# The aperture is the widest thing the window presents to the board side
+check("window clears the bearing posts",
+      case.OLED_H / 2 <= case.BEAR_POST_Y - case.BEAR_POST_D / 2,
+      f"aperture reaches Y {case.OLED_H / 2:.2f}, posts start at "
       f"{case.BEAR_POST_Y - case.BEAR_POST_D / 2:.2f} mm")
+
+# The bevelled opening must stay on the top face, clear of the face chamfer
+_top_face_bb = case.build_plate().faces(">Z").val().BoundingBox()
+check("bevelled window stays within the top face",
+      _want_h / 2 <= _top_face_bb.ylen / 2 - CLEAR_TOL
+      and _want_w / 2 <= _top_face_bb.xlen / 2 - CLEAR_TOL,
+      f"window {_want_w:.2f} x {_want_h:.2f} within top face "
+      f"{_top_face_bb.xlen:.2f} x {_top_face_bb.ylen:.2f} mm")
 
 # Face chamfer must leave the counterbores fully on the flat top face
 top_face = case.build_plate().faces(">Z").val().BoundingBox()
