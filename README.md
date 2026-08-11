@@ -39,6 +39,7 @@ The two halves divide the job cleanly:
   - Four screw bosses, placed *beyond the ends of the shaft*.
   - A **tongue** around the top perimeter that the plate's skirt closes
     over, with 0.15 mm fit clearance.
+  - A large **chamfer on both long bottom edges** (see below).
 
 - **Plate half — the face plate, and it carries the board.** It has:
   - A **cutout over the onboard OLED**, sized from the drawing's 27.28 mm
@@ -54,6 +55,35 @@ The two halves divide the job cleanly:
 
 The **USB-C opening straddles the parting line**, so it is cut from both
 halves from a single shared cutter.
+
+### The octagonal bottom profile
+
+Both long bottom edges of the base are chamfered away, so its end-on section
+reads as a truncated octagon: a narrow flat bottom, two sloped flanks, two
+vertical sides, and a flat top where the face plate closes it off.
+
+This is not just cosmetic. The cell is round, so the corners of a
+rectangular tub are dead material — the chamfer deletes exactly the wedge
+that sits outboard of the cell's curve. It takes the base from **38.8 cm³
+down to 28.8 cm³, a 26% saving**, without touching any clearance.
+
+The chamfer is *derived*, not hardcoded. `_max_chamfer_run()` grows it until
+one of two limits binds:
+
+- `MIN_CHAMFER_WALL` (2.2 mm) — material left between the sloped face and
+  the cell bore. The pinch is always around Z ≈ 6 mm, where the bore's
+  curve outruns the 45° line.
+- `MIN_BOTTOM_W` (14 mm) — the flat the case actually stands on.
+
+At the current settings the bottom flat binds first, giving a **10.75 mm
+run and rise** with **3.39 mm** of wall still over the bore. Raising
+`MIN_BOTTOM_W` gives a tippier but lighter case; the hard ceiling from the
+wall limit alone is 11.94 mm.
+
+**Printability** is the reason the slope is exactly 45°. `CHAMFER_ASPECT`
+is rise/run, and at 1.0 the flank is a 45° overhang off the bed — the usual
+unsupported limit. Set it above 1.0 for a steeper, safer wall that saves
+less. `verify.py` fails the build if the overhang ever exceeds 45°.
 
 ### Why the board hangs from the plate
 
@@ -116,6 +146,10 @@ body, then checks:
 - **Containment** — each component's bounding box lies inside the case.
 - **Support** — a probe at each of the four post locations confirms the
   plate's posts actually land on the board, rather than the board floating.
+- **Bottom chamfer** — overhang stays within 45°, enough wall is left over
+  the cell bore, the standing flat is usable, and the chamfer clears the SMA
+  hole and the boss pilot holes. The built solid is also *sampled* at three
+  heights and compared against the intended profile.
 - **Design clearances** — cell slack, cell-to-board gap, screw-head
   clearance over the cell, bosses clearing the shaft, SMA body clearing the
   cell end, SMA hole landing in solid wall, bearing posts threading the gap
@@ -136,6 +170,9 @@ All checks currently pass. Key measured clearances:
 | Bearing post inner edge vs. OLED module | 9.50 vs 9.28 mm |
 | Bearing post outer edge vs. board edge | 12.50 vs 12.75 mm |
 | Headroom above OLED module | 0.50 mm |
+| Chamfer wall over the cell bore | 3.39 mm (min 2.20) |
+| Chamfer overhang | 45.0° (limit 45°) |
+| Flat the case stands on | 14.00 mm |
 
 Note that a zero-overlap result alone would also be satisfied by a part
 floating in mid-air, which is why the support probes and the
@@ -160,6 +197,7 @@ thickness, component heights, and connector positions.
 | `CELL_D`, `CELL_L` | Your actual 26650 (varies with wrap / protection PCB) |
 | `BOARD_HOLE_Y`, `BOARD_HOLE_FROM_END` | Mounting holes — these now locate the plate's screw posts, so getting them right matters |
 | `BEAR_POST_Y` | Bearing posts; must clear `OLED_MODULE_H/2` and stay inside `BOARD_W/2` |
+| `CHAMFER_ASPECT`, `MIN_BOTTOM_W` | Bottom chamfer: slope and standing flat |
 
 `OLED_ACTIVE_H` is *derived* from the dimensioned active width assuming a
 128×64 panel; if your display differs, set it directly.
@@ -184,8 +222,11 @@ Writes to `output/`:
   support moved off the base, the cradle bore is now a plain half-round
   trough with no overhang beyond its own arc — no support needed.
 - The plate's posts print as simple vertical pillars in that orientation.
-- The base is a fairly solid part (~39 cm³ of enclosed volume including the
-  cradle pedestal) — print it with modest infill rather than solid.
+- The base is ~29 cm³ of enclosed volume including the cradle pedestal —
+  print it with modest infill rather than solid.
+- The bottom chamfer prints as a 45° expanding overhang straight off the
+  bed, so it needs no support, but it does mean the first layer is only
+  14 mm wide — use a brim if adhesion is marginal.
 - M2 pilot holes are sized (1.6 mm) for self-tapping M2 screws into
   PLA/PETG; swap in heat-set inserts (and re-check `M2_PILOT_D` /
   `M2_BOSS_D`) for reusable fastening.

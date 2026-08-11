@@ -223,6 +223,58 @@ check("bearing posts land within the board width",
       f"post outer edge {case.BEAR_POST_Y + case.BEAR_POST_D / 2:.2f} "
       f"vs board edge {case.BOARD_W / 2:.2f} mm")
 
+print("Checking the bottom chamfer...")
+# Printability: the sloped face must not exceed a 45 deg overhang off the bed
+check("chamfer overhang is printable",
+      case.CHAMFER_OVERHANG_DEG <= 45.0 + 1e-6,
+      f"{case.CHAMFER_OVERHANG_DEG:.2f} deg from vertical (limit 45)")
+
+# The chamfer must not eat into the cell bore
+worst_wall = (None, 1e9)
+for i in range(401):
+    z = case.CHAMFER_RISE * i / 400.0
+    w = case.chamfer_outer_half_width(z) - case._bore_half_width(z)
+    if w < worst_wall[1]:
+        worst_wall = (z, w)
+check("chamfer leaves wall over the cell bore",
+      worst_wall[1] >= case.MIN_CHAMFER_WALL - CLEAR_TOL,
+      f"min {worst_wall[1]:.2f} mm at Z={worst_wall[0]:.2f} "
+      f"(limit {case.MIN_CHAMFER_WALL:.2f})")
+
+check("case stands on a usable flat",
+      case.BOTTOM_W >= case.MIN_BOTTOM_W - CLEAR_TOL,
+      f"{case.BOTTOM_W:.2f} mm flat (limit {case.MIN_BOTTOM_W:.2f})")
+
+# The chamfer must stay clear of the features it could plausibly clip
+check("chamfer below the SMA hole",
+      case.CHAMFER_RISE <= case.SMA_Z - case.SMA_HOLE_D / 2,
+      f"chamfer tops out at {case.CHAMFER_RISE:.2f}, "
+      f"SMA hole starts at {case.SMA_Z - case.SMA_HOLE_D / 2:.2f} mm")
+check("screw boss pilot holes above the chamfer",
+      case.CHAMFER_RISE <= case.BASE_DEPTH - min(case.SCREW_LEN, case.BASE_DEPTH - 1.0),
+      f"chamfer tops out at {case.CHAMFER_RISE:.2f}, pilots start at "
+      f"{case.BASE_DEPTH - min(case.SCREW_LEN, case.BASE_DEPTH - 1.0):.2f} mm")
+
+# Confirm the solid really follows the intended profile, by sampling the
+# actual base rather than trusting the formula.
+SLAB_T = 0.02
+for zs in (0.5, case.CHAMFER_RISE / 2, case.CHAMFER_RISE + 2.0):
+    slab = (
+        cq.Workplane("XY")
+        .workplane(offset=zs)
+        .box(1.0, case.OUTER_W + 4, SLAB_T, centered=(True, True, False))
+    )
+    got = intersect_volume(base, slab)
+    bb = bbox(base.intersect(slab)) if got > 0 else None
+    # the slab spans [zs, zs+SLAB_T] and the flank widens with height, so the
+    # bounding box records the half-width at the slab's top face
+    want = case.chamfer_outer_half_width(zs + SLAB_T)
+    got_hw = max(abs(bb.ymin), abs(bb.ymax)) if bb else None
+    ok = got_hw is not None and abs(got_hw - want) <= 0.03
+    check(f"solid matches profile at Z={zs:.2f}", ok,
+          f"half-width {got_hw:.3f} vs expected {want:.3f}"
+          if bb else "no material found")
+
 win_lo = case.OLED_CENTER_X - case.OLED_W / 2
 win_hi = case.OLED_CENTER_X + case.OLED_W / 2
 mod_lo = case.OLED_CENTER_X - case.OLED_MODULE_W / 2
@@ -253,6 +305,9 @@ print(f"  insertion shaft     : {case.SHAFT_L:.1f} x {case.SHAFT_W:.1f} mm, "
       f"Z {case.SHAFT_Z0:.2f} -> {case.SHAFT_Z1:.2f}")
 print(f"  cell axis / top Z   : {case.CELL_AXIS_Z:.2f} / {case.CELL_TOP_Z:.2f} mm")
 print(f"  parting line Z      : {case.PARTING_Z:.2f} mm")
+print(f"  bottom chamfer      : run {case.CHAMFER_RUN:.2f} / rise "
+      f"{case.CHAMFER_RISE:.2f} mm @ {case.CHAMFER_OVERHANG_DEG:.1f} deg, "
+      f"stands on {case.BOTTOM_W:.2f} mm")
 print(f"  board underside Z   : {case.BOARD_UNDER_Z:.2f} mm")
 print(f"  base volume         : {volume(base) / 1000.0:.2f} cm^3")
 print(f"  plate volume        : {volume(plate) / 1000.0:.2f} cm^3")

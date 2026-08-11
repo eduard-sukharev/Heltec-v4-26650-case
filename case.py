@@ -23,6 +23,7 @@ Usage:
 
 import cadquery as cq
 from cadquery import exporters
+import math
 import os
 
 # ---------------------------------------------------------------------------
@@ -100,6 +101,19 @@ CELL_TO_BOARD_GAP = 3.5    # cell top -> board underside (also clears screw head
 PARTING_ABOVE_CELL = 1.0   # parting line sits this far above the cell bore
 CORNER_FILLET = 2.5
 
+# --- Bottom chamfer (base only) ---------------------------------------------
+# The two long bottom edges are chamfered away, so the base's end-on profile
+# becomes a truncated octagon: narrow flat bottom, two sloped flanks, two
+# vertical sides, flat top where the face plate closes it. This deletes the
+# dead corners of material outboard of the round cell.
+#
+# CHAMFER_ASPECT is rise/run. 1.0 gives a 45 deg face, which is a 45 deg
+# overhang off the bed -- the printable limit. Values > 1.0 are shallower in
+# plan (steeper walls, safer to print, but less material saved).
+CHAMFER_ASPECT = 1.0
+MIN_CHAMFER_WALL = 2.2     # material left between the chamfer and the cell bore
+MIN_BOTTOM_W = 14.0        # flat width the case stands on
+
 # --- Board support posts (on the PLATE) -------------------------------------
 POST_D = M2_BOSS_D = 5.5   # screw posts, at the board's mounting holes
 BEAR_POST_D = 3.0          # bearing posts at the far end, no screw
@@ -154,6 +168,54 @@ screw_positions = [
     (-OUTER_L / 2 + SCREW_INSET, -OUTER_W / 2 + SCREW_INSET),
 ]
 
+
+def _bore_half_width(z):
+    """Half-width of the cell bore at height z (0 outside the bore)."""
+    dz = z - CELL_AXIS_Z
+    return math.sqrt(max(CELL_BORE_R ** 2 - dz * dz, 0.0))
+
+
+def chamfer_outer_half_width(z):
+    """Half-width of the base's outer surface at height z, after chamfering."""
+    rise = CHAMFER_RISE
+    if z >= rise:
+        return OUTER_W / 2
+    return OUTER_W / 2 - CHAMFER_RUN * (1.0 - z / rise)
+
+
+def _max_chamfer_run():
+    """Largest chamfer that keeps MIN_CHAMFER_WALL of material between the
+    sloped face and the cell bore, and leaves MIN_BOTTOM_W to stand on."""
+    def wall_ok(run):
+        rise = run * CHAMFER_ASPECT
+        for i in range(201):
+            z = rise * i / 200.0
+            outer = OUTER_W / 2 - run * (1.0 - (z / rise if rise else 1.0))
+            if outer - _bore_half_width(z) < MIN_CHAMFER_WALL:
+                return False
+        return True
+
+    hi = (OUTER_W - MIN_BOTTOM_W) / 2.0
+    if hi <= 0:
+        return 0.0
+    if wall_ok(hi):
+        return hi
+    lo = 0.0
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        if wall_ok(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+CHAMFER_RUN = _max_chamfer_run()
+CHAMFER_RISE = CHAMFER_RUN * CHAMFER_ASPECT
+BOTTOM_W = OUTER_W - 2 * CHAMFER_RUN
+# Overhang measured from vertical; must stay <= 45 deg to print unsupported
+CHAMFER_OVERHANG_DEG = math.degrees(math.atan2(CHAMFER_RUN, CHAMFER_RISE))
+
 # Board and cell are both centred at X=0, Y=0. USB-C faces +X, antenna -X.
 BOARD_CONNECTOR_END_X = BOARD_L / 2
 BOARD_FAR_END_X = -BOARD_L / 2
@@ -203,6 +265,34 @@ def insertion_shaft():
         cq.Workplane("XY")
         .workplane(offset=SHAFT_Z0)
         .box(SHAFT_L, SHAFT_W, SHAFT_Z1 - SHAFT_Z0, centered=(True, True, False))
+    )
+
+
+def bottom_chamfer_profile():
+    """Prism whose end-on (YZ) section is the base's chamfered outer profile.
+    Intersecting the base with this shaves both long bottom edges at once,
+    which is far more robust than selecting edges for a large .chamfer()."""
+    hw = OUTER_W / 2
+    top = BASE_DEPTH + 1
+    inner = hw - CHAMFER_RUN
+    # The sloped segment runs exactly (inner, 0) -> (hw, CHAMFER_RISE); the
+    # skirt below Z=0 only exists so the boolean does not have to resolve
+    # faces coplanar with the base's own underside.
+    pts = [
+        (-inner, -1.0),
+        (inner, -1.0),
+        (inner, 0.0),
+        (hw, CHAMFER_RISE),
+        (hw, top),
+        (-hw, top),
+        (-hw, CHAMFER_RISE),
+        (-inner, 0.0),
+    ]
+    return (
+        cq.Workplane("YZ")
+        .polyline(pts)
+        .close()
+        .extrude((OUTER_L + 2) / 2, both=True)
     )
 
 
@@ -277,6 +367,10 @@ def build_base():
             .circle(M2_PILOT_D / 2)
             .extrude(-min(SCREW_LEN, BASE_DEPTH - 1.0))
         )
+
+    # Shave both long bottom edges to the octagonal profile. Applied last so
+    # it trims the screw bosses' lower flanks along with the shell.
+    base = base.intersect(bottom_chamfer_profile())
 
     return base.cut(_usb_cutter())
 
@@ -473,4 +567,6 @@ if __name__ == "__main__":
     print(f"Outer size    : {OUTER_L:.1f} x {OUTER_W:.1f} x {TOTAL_HEIGHT:.1f} mm")
     print(f"Insertion shaft: {SHAFT_L:.1f} x {SHAFT_W:.1f} mm, "
           f"Z {SHAFT_Z0:.2f} -> {SHAFT_Z1:.2f}")
+    print(f"Bottom chamfer: run {CHAMFER_RUN:.2f} rise {CHAMFER_RISE:.2f} mm, "
+          f"{CHAMFER_OVERHANG_DEG:.1f} deg overhang, stands on {BOTTOM_W:.2f} mm")
     print(f"Parting line  : Z {PARTING_Z:.2f}   board underside Z {BOARD_UNDER_Z:.2f}")
