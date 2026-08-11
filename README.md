@@ -18,22 +18,29 @@ two-piece 3D-printable enclosure for:
 
 ## Design
 
-The enclosure is a single elongated tub split into two halves along a
-horizontal parting line, closed with **four M2 socket-head cap screws**
-(M2×8 recommended) threaded into printed bosses:
+The enclosure is a compact tub split into two halves along a horizontal
+parting line, closed with **four M2 socket-head cap screws** (M2×8
+recommended) threaded into printed bosses. The 26650 cell is **stacked
+directly beneath the board**, both centred on and running parallel to the
+case's long axis (the cell sits centred *behind*/under the board, not
+end-to-end with it) -- this keeps the footprint close to the board's own
+size rather than stretching the case to fit both parts in a row.
 
 - **Base half** — the deeper half. Contains:
   - A half-round trough sized for a 26650 cell (26.5 mm dia. tolerance,
-    65.5 mm length tolerance) with retaining end-ribs.
-  - Two pairs of board standoffs sized for the Heltec V4's mounting-hole
-    pattern near the USB-C end, with pilot holes for self-tapping/press-fit
-    into the board (or heat-set inserts if you prefer).
-  - A USB-C cutout in the short wall at the board's connector edge.
-  - A panel-mount **SMA bulkhead hole** (8.4 mm) in the long side wall near
-    the connector end, for the IPEX↔SMA pigtail. The pigtail's IPEX end
-    plugs into the board's u.FL/IPEX antenna connector; the SMA end passes
+    65.5 mm length tolerance), centred under the board, with retaining
+    end-ribs.
+  - Two pairs of board standoffs above the cell (sized for the Heltec V4's
+    mounting-hole pattern near the USB-C end, plus a support pair at the
+    far end), with pilot holes for self-tapping/press-fit into the board
+    (or heat-set inserts if you prefer).
+  - A USB-C cutout in the short end wall at the board's connector edge.
+  - A panel-mount **SMA bulkhead hole** (8.4 mm) centred in the *opposite*
+    short end wall, for the IPEX↔SMA pigtail. The pigtail's IPEX end plugs
+    into the board's u.FL/IPEX antenna connector; the SMA end passes
     through this hole and is secured from outside with the connector's own
-    nut, so an external screw-on antenna can attach directly to the case.
+    nut, so an external screw-on antenna mounts on the case's short side,
+    opposite the USB-C port.
   - Four screw bosses with M2 pilot holes.
   - A rabbet/step around the top perimeter that the plate's lip seats into,
     for alignment and a dust/light seal.

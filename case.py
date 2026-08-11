@@ -77,9 +77,10 @@ CELL_CLEARANCE = 0.6      # extra diametral clearance for the bay
 WALL = 2.2                 # outer shell wall thickness
 FLOOR = 2.0                # base floor thickness under the battery bay
 LID_RECESS = 5.0           # depth of the split-line rabbet/lip
-STANDOFF_H = 3.0           # board standoff height above battery bay floor
+BOARD_STANDOFF_GAP = 1.2   # clearance between the top of the cell and the board underside
 STANDOFF_D = 5.0
 BOSS_D = 5.5               # screw-boss outer diameter (base halves)
+COMPONENT_HEADROOM = 3.0   # clearance above the board top face for SMD parts/OLED module
 
 # --- M2 socket-head cap screw fasteners --------------------------------------
 M2_SHAFT_D = 2.2           # clearance hole for M2 screw shaft
@@ -90,14 +91,24 @@ M2_BOSS_D = 5.5
 SCREW_LEN = 8.0             # M2x8 SHCS assumed
 
 # --- Derived overall dimensions ---------------------------------------------
-INNER_W = max(BOARD_W + 2 * BOARD_CLEARANCE, CELL_D + CELL_CLEARANCE) + 6.0
-INNER_L = BOARD_L + CELL_L + 10.0   # board bay + battery bay + divider gap
-INNER_H = max(BOARD_T + STANDOFF_H + 6.0, CELL_D + CELL_CLEARANCE + FLOOR)
+# Layout: the cell is stacked directly under the board, both sharing the same
+# long axis (X) and both centred on the case centreline (X=0, Y=0) -- i.e.
+# the battery sits centred *behind* (underneath) the board, oriented along
+# it, rather than end-to-end with it. USB-C and the antenna live in the two
+# short end walls (the walls perpendicular to the shared long axis).
+CELL_R = (CELL_D + CELL_CLEARANCE) / 2
+
+INNER_W = max(BOARD_W + 2 * BOARD_CLEARANCE, CELL_D + CELL_CLEARANCE) + 4.0
+INNER_L = max(BOARD_L, CELL_L) + 8.0   # shared length, plus margin for end walls
 
 OUTER_W = INNER_W + 2 * WALL
 OUTER_L = INNER_L + 2 * WALL
-BASE_DEPTH = INNER_H * 0.62      # base half holds the battery + most of the height
-PLATE_DEPTH = INNER_H - BASE_DEPTH + LID_RECESS
+
+# Z stack (measured from the base's inner floor, Z=FLOOR upward):
+#   cell bay -> gap -> board -> component headroom -> plate inner face
+STANDOFF_H = CELL_D + CELL_CLEARANCE + BOARD_STANDOFF_GAP   # post height, floor -> board underside
+BASE_DEPTH = FLOOR + STANDOFF_H + BOARD_T + LID_RECESS
+PLATE_DEPTH = COMPONENT_HEADROOM + WALL + LID_RECESS
 
 CORNER_FILLET = 2.5
 
@@ -110,15 +121,11 @@ screw_positions = [
     (-OUTER_L / 2 + SCREW_INSET, -OUTER_W / 2 + SCREW_INSET),
 ]
 
-# Layout along the case length (X axis): battery bay first, then a thin
-# divider wall, then the board bay. Y=0 / X=0 is the overall case centre.
-BATTERY_BAY_X0 = -OUTER_L / 2 + WALL
-BATTERY_BAY_CENTER_X = BATTERY_BAY_X0 + CELL_L / 2 + 1.0
-DIVIDER_X = BATTERY_BAY_X0 + CELL_L + 2.0
-BOARD_BAY_CENTER_X = DIVIDER_X + 2.0 + BOARD_L / 2
-
-# USB-C / antenna live on the far short wall past the board's connector edge
-BOARD_TOP_EDGE_X = BOARD_BAY_CENTER_X + BOARD_L / 2   # edge nearest outer wall
+# Board and cell are both centred on the case (X=0, Y=0). The board's
+# connector (USB-C) edge is placed toward +X; the antenna bulkhead sits in
+# the opposite short wall at -X.
+BOARD_CONNECTOR_END_X = BOARD_L / 2     # board edge nearest the +X (USB-C) wall
+BOARD_FAR_END_X = -BOARD_L / 2          # board edge nearest the -X (antenna) wall
 
 
 # ---------------------------------------------------------------------------
@@ -144,15 +151,18 @@ def build_base():
 
     base = outer.cut(inner_cavity)
 
-    # Battery bay: half-round trough (cell rests in the base, plate closes over it)
-    cell_r = (CELL_D + CELL_CLEARANCE) / 2
+    # Battery bay: half-round trough running the length of the cell, centred
+    # on the case (X=0, Y=0) directly beneath the board -- axis parallel to
+    # the board's long axis. The trough is "open" on top because the inner
+    # cavity above it has already been removed; only the cradle below the
+    # cylinder's centreline remains solid.
     battery_trough = (
         cq.Workplane("XY")
-        .workplane(offset=FLOOR + cell_r)
+        .workplane(offset=FLOOR + CELL_R)
         .transformed(rotate=(90, 0, 0))
-        .center(BATTERY_BAY_CENTER_X, 0)
-        .circle(cell_r)
-        .extrude(CELL_D, both=True)
+        .center(0, 0)
+        .circle(CELL_R)
+        .extrude(CELL_L, both=True)
     )
     base = base.cut(battery_trough)
 
@@ -161,14 +171,15 @@ def build_base():
         stop = (
             cq.Workplane("XY")
             .workplane(offset=FLOOR)
-            .center(BATTERY_BAY_CENTER_X + sign * (CELL_L / 2 - 1.0), 0)
+            .center(sign * (CELL_L / 2 - 1.0), 0)
             .rect(2.0, INNER_W - 4)
-            .extrude(cell_r + 2)
+            .extrude(CELL_R + 2)
         )
         base = base.union(stop)
 
-    # Board standoffs (2 posts under the board's mounting-hole row)
-    board_hole_row_x = BOARD_TOP_EDGE_X - BOARD_HOLE_FROM_TOP
+    # Board standoffs (2 posts under the board's mounting-hole row, near the
+    # USB-C/+X end, plus a support pair near the far/-X end).
+    board_hole_row_x = BOARD_CONNECTOR_END_X - BOARD_HOLE_FROM_TOP
     for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
         post = (
             cq.Workplane("XY")
@@ -183,36 +194,37 @@ def build_base():
         )
         base = base.union(post)
 
-    # A second standoff pair near the far (OLED) end of the board for support
     for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
         post = (
             cq.Workplane("XY")
             .workplane(offset=FLOOR)
-            .center(BOARD_BAY_CENTER_X - BOARD_L / 2 + 4.0, y)
+            .center(BOARD_FAR_END_X + 4.0, y)
             .circle(STANDOFF_D / 2)
             .extrude(STANDOFF_H)
         )
         base = base.union(post)
 
-    # USB-C cutout in the short wall past the board's connector edge
+    # USB-C cutout in the +X short wall, at the board's connector edge
+    usb_z = FLOOR + STANDOFF_H + USB_H / 2
     usb_cutout = (
         cq.Workplane("YZ")
         .workplane(offset=OUTER_L / 2)
-        .center(0, FLOOR + STANDOFF_H + BOARD_T + USB_H / 2)
+        .center(0, usb_z)
         .rect(USB_W, USB_H + 1.0)
         .extrude(-WALL - 1)
     )
     base = base.cut(usb_cutout)
 
-    # SMA antenna bulkhead hole through the long side wall, positioned over
-    # the board bay near the connector end (typical IPEX pigtail routing).
-    sma_z = FLOOR + STANDOFF_H + BOARD_T + 6.0
+    # SMA antenna bulkhead hole through the -X short wall (opposite end from
+    # USB-C), for the IPEX-to-SMA pigtail running from the board's u.FL
+    # connector out to an external screw-on antenna.
+    sma_z = FLOOR + STANDOFF_H + BOARD_T / 2
     sma_hole = (
-        cq.Workplane("XZ")
-        .workplane(offset=OUTER_W / 2)
-        .center(BOARD_TOP_EDGE_X - 8.0, sma_z)
+        cq.Workplane("YZ")
+        .workplane(offset=-OUTER_L / 2)
+        .center(0, sma_z)
         .circle(SMA_HOLE_D / 2)
-        .extrude(-WALL - 1)
+        .extrude(WALL + 1)
     )
     base = base.cut(sma_hole)
 
@@ -307,8 +319,8 @@ def build_plate():
     lip = lip_outer.cut(lip_inner)
     plate = plate.union(lip)
 
-    # OLED window on the top face, located over the board bay
-    oled_center_x = BOARD_TOP_EDGE_X - OLED_CENTER_FROM_TOP
+    # OLED window on the top face, located over the board
+    oled_center_x = BOARD_CONNECTOR_END_X - OLED_CENTER_FROM_TOP
     oled_window = (
         cq.Workplane("XY")
         .workplane(offset=PLATE_DEPTH - WALL - 1)
