@@ -1,8 +1,10 @@
 """
 Fit, collision and insertion-path checks for the Heltec V4 / 26650 case.
 
-Builds both case halves plus mock solids for the cell, the board, its
-retaining screw heads and the SMA bulkhead body, then checks that:
+Builds both case halves plus mock solids for the cell, the board (which
+carries its own GPS/battery/solar connector mocks) and the SMA bulkhead
+connector (nut + washer + fixed pigtail stub, mounted through the plate's
+top wall), then checks that:
   * no two solids overlap (pairwise boolean intersection volume ~ 0)
   * the cell has a clear straight-down insertion path into its cradle
   * every component sits inside the case's outer envelope
@@ -55,27 +57,37 @@ plate_local = case.build_plate()          # plate frame: Z=0 at the parting line
 plate = plate_local.translate((0, 0, case.PARTING_Z))
 cell = case.build_cell()
 board = case.build_board()
-screws = case.build_board_screws()
-sma = case.build_sma_body()
+sma = case.build_sma_connector()
 
 solids = {
     "base": base,
     "plate": plate,
     "cell": cell,
     "board": board,
-    "screws": screws,
-    "sma-body": sma,
+    "sma": sma,
 }
+
+# The plate's rail preload dimples are DESIGNED to interfere with the board
+# by PRELOAD_BUMP_INTERFERENCE (elastically compressed on assembly, so the
+# board doesn't rattle in BOARD_SLOT_CLEARANCE) -- that pair gets a wider,
+# explicitly-bounded tolerance instead of the generic sliver check.
+_expect_preload = (2 * case.PRELOAD_BUMP_LEN
+                    * (case.RAIL_OUTER_Y - case.RAIL_SHOULDER_INNER_Y)
+                    * case.PRELOAD_BUMP_INTERFERENCE)
 
 print("Checking pairwise collisions...")
 names = list(solids)
 for i in range(len(names)):
     for j in range(i + 1, len(names)):
         a, b = names[i], names[j]
-        # the board is meant to be bolted to the plate's posts, and the
-        # screw heads are meant to touch the board -- contact, not overlap
         v = intersect_volume(solids[a], solids[b])
-        check(f"no collision: {a} <-> {b}", v <= SLIVER_TOL, f"overlap {v:.3f} mm^3")
+        if {a, b} == {"plate", "board"}:
+            check("plate <-> board overlap is just the preload dimples", (
+                v <= _expect_preload + SLIVER_TOL),
+                f"overlap {v:.3f} mm^3 (expected ~{_expect_preload:.3f} mm^3 of "
+                f"designed preload interference)")
+        else:
+            check(f"no collision: {a} <-> {b}", v <= SLIVER_TOL, f"overlap {v:.3f} mm^3")
 
 # --- the headline check: can the cell actually be dropped in? --------------
 print("Checking cell insertion path...")
@@ -155,8 +167,11 @@ check(
 )
 
 print("Checking containment...")
+# "sma" is deliberately excluded: its threaded barrel is *meant* to
+# protrude out through its own hole in the top wall, exactly like the
+# u.FL/USB-C mocks are excluded from the board's own containment story.
 env = bbox(base.union(plate))
-for nm in ("cell", "board", "sma-body"):
+for nm in ("cell", "board"):
     bb = bbox(solids[nm])
     inside = (
         bb.xmin >= env.xmin - CLEAR_TOL and bb.xmax <= env.xmax + CLEAR_TOL
@@ -172,21 +187,41 @@ for nm in ("cell", "board", "sma-body"):
     )
 
 print("Checking the board is actually supported...")
-# Probe just above the board's top face where each post should land
-post_spots = [(case.BOARD_HOLE_X, case.BOARD_HOLE_Y, "screw post +Y"),
-              (case.BOARD_HOLE_X, -case.BOARD_HOLE_Y, "screw post -Y"),
-              (case.BEAR_POST_X, case.BEAR_POST_Y, "bearing post +Y"),
-              (case.BEAR_POST_X, -case.BEAR_POST_Y, "bearing post -Y")]
-for (px, py, label) in post_spots:
+# Probe along the rail shoulder's span, at both edges, just above the board's
+# top face -- the shoulder must be present (registering the board) the whole
+# way from the far end to the USB-C endstop.
+_rail_x0 = case.BOARD_FAR_END_X - 1.0
+_rail_x1 = case.BOARD_CONNECTOR_END_X
+for frac in (0.1, 0.5, 0.9):
+    px = _rail_x0 + frac * (_rail_x1 - _rail_x0)
+    for sign in (1, -1):
+        py = sign * (case.RAIL_SHOULDER_INNER_Y + case.RAIL_OUTER_Y) / 2
+        probe = (
+            cq.Workplane("XY")
+            .workplane(offset=case.BOARD_TOP_LOCAL + case.PARTING_Z + 0.05)
+            .center(px, py)
+            .rect(1.0, 1.0)
+            .extrude(0.4)
+        )
+        v = intersect_volume(plate, probe)
+        check(f"rail shoulder present at X={px:.1f}, Y={py:.1f}", v > 0.2,
+              f"{v:.2f} mm^3 of shoulder")
+
+# The lip must actually trap the board's underside somewhere past the
+# lead-in gap, or the board can simply fall back out.
+_lip_probe_x = _rail_x0 + case.LIP_LEAD_IN + 1.0
+for sign in (1, -1):
+    py = sign * (case.RAIL_LIP_INNER_Y + case.RAIL_OUTER_Y) / 2
     probe = (
         cq.Workplane("XY")
-        .workplane(offset=case.BOARD_TOP_Z + 0.05)
-        .center(px, py)
-        .circle(case.BEAR_POST_D / 2 - 0.2)
+        .workplane(offset=case.BOARD_UNDER_LOCAL + case.PARTING_Z - case.BOARD_SLOT_CLEARANCE - 0.05)
+        .center(_lip_probe_x, py)
+        .rect(1.0, 1.0)
         .extrude(0.4)
     )
     v = intersect_volume(plate, probe)
-    check(f"post lands on board: {label}", v > 0.5, f"{v:.2f} mm^3 of post")
+    check(f"lip traps board underside at X={_lip_probe_x:.1f}, Y={py:.1f}", v > 0.2,
+          f"{v:.2f} mm^3 of lip")
 
 print("Checking design clearances...")
 check("cell radial clearance in cradle", case.CELL_CLEARANCE / 2 > 0,
@@ -197,14 +232,15 @@ check("cell axial clearance in cradle", case.CELL_END_CLEARANCE > 0,
 gap = case.BOARD_UNDER_Z - case.CELL_TOP_Z
 check("gap: cell top -> board underside", gap > 0, f"{gap:.2f} mm")
 
-head_gap = (case.BOARD_UNDER_Z - case.M2_HEAD_H) - case.CELL_TOP_Z
-check("gap: cell top -> board screw heads", head_gap > 0, f"{head_gap:.2f} mm")
+conn_gap = (case.BOARD_UNDER_Z - case.CONN_H) - case.CELL_TOP_Z
+check("gap: cell top -> GPS/battery/solar connectors", conn_gap > 0, f"{conn_gap:.2f} mm")
 
-# CELL_TO_BOARD_GAP was trimmed to the screw heads specifically on the
-# assumption the board's GPIO headers are unpopulated (HEADER_PIN_PROTRUSION
-# = 0). If that is ever raised, the gap formula must actually track it --
-# this is what stops someone flipping the assumption without the geometry
-# responding, which is exactly the kind of thing this suite exists to catch.
+# CELL_TO_BOARD_GAP was trimmed to the underside connectors/coin-cell holder
+# specifically on the assumption the board's GPIO headers are unpopulated
+# (HEADER_PIN_PROTRUSION = 0). If that is ever raised, the gap formula must
+# actually track it -- this is what stops someone flipping the assumption
+# without the geometry responding, which is exactly the kind of thing this
+# suite exists to catch.
 check("cell-to-board gap accounts for header pins",
       case.CELL_TO_BOARD_GAP >= case.HEADER_PIN_PROTRUSION + 0.3 - CLEAR_TOL,
       f"gap {case.CELL_TO_BOARD_GAP:.2f} vs pins {case.HEADER_PIN_PROTRUSION:.2f} + 0.3 mm")
@@ -220,44 +256,91 @@ check("board length fits the cavity",
       case.BOARD_L + 2 * case.BOARD_CLEARANCE <= case.INNER_L,
       f"board {case.BOARD_L:.1f} vs cavity {case.INNER_L:.1f} mm")
 
-check("SMA body clears the cell end",
-      case.SMA_INNER_DEPTH <= case.SMA_CLEAR_DEPTH,
-      f"needs {case.SMA_INNER_DEPTH:.2f}, available {case.SMA_CLEAR_DEPTH:.2f} mm")
-
-# Measure the offset directly off the built bore geometry (not the formulas
-# used to size it) and confirm it actually favours the antenna end -- this
-# is what the whole CELL_OFFSET_X change is for.
+# Measure the offset directly off the built bore geometry (not the formula
+# used to size it). CELL_OFFSET_X is 0 by default now (the SMA mount no
+# longer needs axial room past the cell -- see case.py's comment on it) --
+# these checks just confirm whichever value it's set to actually produced a
+# bore shifted that way and by that much, in case it's ever raised again.
 _bore_bb = case.cell_bore().val().BoundingBox()
 _gap_usb = case.INNER_L / 2 - _bore_bb.xmax
 _gap_antenna = _bore_bb.xmin - (-case.INNER_L / 2)
-check("cell offset is toward +X (away from the antenna)",
-      case.CELL_OFFSET_X > 0,
-      f"CELL_OFFSET_X = {case.CELL_OFFSET_X:.2f} mm")
-check("antenna end has more clearance than the USB end",
-      _gap_antenna > _gap_usb,
-      f"antenna {_gap_antenna:.2f} mm vs USB {_gap_usb:.2f} mm")
+check("cell offset direction matches CELL_OFFSET_X's sign",
+      (case.CELL_OFFSET_X == 0 and abs(_gap_antenna - _gap_usb) <= CLEAR_TOL)
+      or (case.CELL_OFFSET_X > 0 and _gap_antenna > _gap_usb)
+      or (case.CELL_OFFSET_X < 0 and _gap_antenna < _gap_usb),
+      f"CELL_OFFSET_X = {case.CELL_OFFSET_X:.2f} mm, "
+      f"antenna {_gap_antenna:.2f} vs USB {_gap_usb:.2f} mm")
 check("measured antenna clearance matches SMA_CLEAR_DEPTH",
       abs(_gap_antenna - case.SMA_CLEAR_DEPTH) <= CLEAR_TOL,
       f"measured {_gap_antenna:.2f} vs formula {case.SMA_CLEAR_DEPTH:.2f} mm")
-sma_lo = case.SMA_Z - case.SMA_HOLE_D / 2
-sma_hi = case.SMA_Z + case.SMA_HOLE_D / 2
-check("SMA hole within the base's end wall",
-      sma_lo >= case.CELL_AXIS_Z and sma_hi <= case.PARTING_Z,
-      f"hole {sma_lo:.2f}..{sma_hi:.2f} in wall band "
-      f"{case.CELL_AXIS_Z:.2f}..{case.PARTING_Z:.2f} mm")
+
+# SMA mount: axial, through the PLATE's own -X end wall -- sits entirely
+# above the cell (the plate's whole Z-band clears CELL_TOP_Z), so the only
+# axial (X) limit is the board's own far edge, not SMA_CLEAR_DEPTH. The
+# washer sits flush against the wall (SMA_WASHER_OUTER_X, no offset), and
+# the half-lap ledge is notched locally to clear it (_sma_ledge_notch())
+# rather than moving the connector to dodge the ledge.
+_sma_stub_tip_x = case.SMA_WASHER_OUTER_X + case.SMA_WASHER_T + case.SMA_NUT_T + case.SMA_PIGTAIL_L
+check("SMA connector clears the board's far edge",
+      case.BOARD_FAR_END_X - _sma_stub_tip_x > 0,
+      f"stub tip X={_sma_stub_tip_x:.2f} vs board edge X={case.BOARD_FAR_END_X:.2f}")
+check("SMA washer sits flush against the wall, no gap",
+      abs(case.SMA_WASHER_OUTER_X - (-case.INNER_L / 2)) <= CLEAR_TOL,
+      f"washer outer X={case.SMA_WASHER_OUTER_X:.3f} vs wall inner face "
+      f"X={-case.INNER_L / 2:.3f}")
+
+# Z just needs to clear the plate's own ceiling now -- the ledge conflict
+# is resolved by the notch, not by squeezing SMA_Z between it and the
+# ceiling, so there's no floor-side constraint left to balance against.
+_sma_wide_hi = case.SMA_Z + case.SMA_WASHER_OD / 2
+check("SMA washer clears the plate ceiling",
+      case.PLATE_INNER_H - (_sma_wide_hi - case.PARTING_Z) > 0,
+      f"top Z(local)={_sma_wide_hi - case.PARTING_Z:.2f} vs "
+      f"ceiling Z(local)={case.PLATE_INNER_H:.2f}")
+
+# What the OLD (est) axial-through-the-BASE mount would have needed, for
+# comparison -- this is the number that actually motivated moving the
+# mount off the base: the real connector's nut+washer+stub (17mm) is
+# deeper than SMA_CLEAR_DEPTH (10.75mm) provides there. Mounting through
+# the plate's wall instead sidesteps that limit entirely, since the plate
+# doesn't share the base's cell-driven constraint. Informational, not a
+# pass/fail gate.
+_axial_depth_needed = case.SMA_NUT_T + case.SMA_WASHER_T + case.SMA_PIGTAIL_L
+check("(informational) old base-wall axial mount would no longer fit",
+      True,
+      f"needs {_axial_depth_needed:.1f}mm axially, SMA_CLEAR_DEPTH only "
+      f"gives {case.SMA_CLEAR_DEPTH:.2f}mm -- why the mount moved to the plate's wall")
 
 check("headroom above OLED module", case.OLED_TOP_GAP > 0,
       f"{case.OLED_TOP_GAP:.2f} mm to the window")
 
-# Bearing posts must miss the OLED module but land on the board
-check("bearing posts clear the OLED module",
-      case.BEAR_POST_Y - case.BEAR_POST_D / 2 >= case.OLED_MODULE_H / 2,
-      f"post inner edge {case.BEAR_POST_Y - case.BEAR_POST_D / 2:.2f} "
-      f"vs module edge {case.OLED_MODULE_H / 2:.2f} mm")
-check("bearing posts land within the board width",
-      case.BEAR_POST_Y + case.BEAR_POST_D / 2 <= case.BOARD_W / 2,
-      f"post outer edge {case.BEAR_POST_Y + case.BEAR_POST_D / 2:.2f} "
-      f"vs board edge {case.BOARD_W / 2:.2f} mm")
+# Retention rails must miss the OLED window but stay within the board width
+check("rail shoulder clears the OLED window",
+      case.RAIL_SHOULDER_INNER_Y >= case.OLED_WINDOW_H / 2,
+      f"shoulder inner edge {case.RAIL_SHOULDER_INNER_Y:.2f} "
+      f"vs window edge {case.OLED_WINDOW_H / 2:.2f} mm")
+check("rail outer edge lands within the board width",
+      case.RAIL_OUTER_Y <= case.BOARD_W / 2 + case.BOARD_CLEARANCE + CLEAR_TOL,
+      f"rail outer edge {case.RAIL_OUTER_Y:.2f} "
+      f"vs board+clearance edge {case.BOARD_W / 2 + case.BOARD_CLEARANCE:.2f} mm")
+
+# The board's shift toward the USB-C end must stay clear of the +X corner
+# screw boss -- that's the constraint that actually caps BOARD_CENTER_X.
+_boss_x = case.OUTER_L / 2 - case.SCREW_INSET
+_board_pocket_edge = case.BOARD_CONNECTOR_END_X + case.BOARD_CLEARANCE
+check("board pocket clears the +X corner screw boss",
+      _boss_x - case.M2_BOSS_D / 2 - _board_pocket_edge >= -CLEAR_TOL,
+      f"boss inner edge {_boss_x - case.M2_BOSS_D / 2:.2f} "
+      f"vs board pocket edge {_board_pocket_edge:.2f} mm")
+
+# Regression guard for the whole point of the X-shift: USB-C connector face
+# should sit meaningfully closer to the case's inner wall than the old,
+# unshifted 17.65mm gap.
+_usb_face_x = case.BOARD_CONNECTOR_END_X + case.USB_OVERHANG
+_usb_wall_gap = case.INNER_L / 2 - _usb_face_x
+check("USB-C connector sits close to the case's USB cutout",
+      _usb_wall_gap < 10.0,
+      f"{_usb_wall_gap:.2f} mm gap to the inner wall (was 17.65mm unshifted)")
 
 print("Checking the bottom chamfer...")
 # Printability: the sloped face must not exceed a 45 deg overhang off the bed
@@ -281,11 +364,9 @@ check("case stands on a usable flat",
       case.BOTTOM_W >= case.MIN_BOTTOM_W - CLEAR_TOL,
       f"{case.BOTTOM_W:.2f} mm flat (limit {case.MIN_BOTTOM_W:.2f})")
 
-# The chamfer must stay clear of the features it could plausibly clip
-check("chamfer below the SMA hole",
-      case.CHAMFER_RISE <= case.SMA_Z - case.SMA_HOLE_D / 2,
-      f"chamfer tops out at {case.CHAMFER_RISE:.2f}, "
-      f"SMA hole starts at {case.SMA_Z - case.SMA_HOLE_D / 2:.2f} mm")
+# The chamfer must stay clear of the features it could plausibly clip.
+# (The SMA hole is no longer in this wall -- it moved to the plate's top --
+# so there's nothing SMA-specific to check here any more.)
 check("screw boss pilot holes above the chamfer",
       case.CHAMFER_RISE <= case.BASE_DEPTH - min(case.SCREW_LEN, case.BASE_DEPTH - 1.0),
       f"chamfer tops out at {case.CHAMFER_RISE:.2f}, pilots start at "
@@ -353,10 +434,6 @@ check("end chamfer leaves wall over the bore end",
       f"(limit {case.MIN_END_CHAMFER_WALL:.2f})" if worst_end[0] is not None
       else "bore does not reach the chamfer")
 
-check("end chamfer below the SMA hole",
-      case.END_CHAMFER_RISE <= case.SMA_Z - case.SMA_HOLE_D / 2,
-      f"chamfer tops out at {case.END_CHAMFER_RISE:.2f}, "
-      f"SMA hole starts at {case.SMA_Z - case.SMA_HOLE_D / 2:.2f} mm")
 
 check("case stands on a usable flat (length)",
       case.BOTTOM_L >= case.MIN_BOTTOM_L - CLEAR_TOL,
@@ -399,6 +476,28 @@ for (x, y) in case.screw_positions:
           abs(got_v - want_v) <= 0.5,
           f"{got_v:.2f} of {want_v:.2f} mm^3")
 
+# SCREW_INSET was pushed in to the corner as far as BOSS_OUTER_MARGIN allows
+# without poking through the outer (filleted) surface -- confirm that
+# directly against the built solid, not just the formula that placed it.
+# Only the *outward* diagonal direction (toward the true corner) matters --
+# the inward side of this same margin band is legitimately open cavity, not
+# a protrusion, so a full-ring probe would be the wrong test.
+for (x, y) in case.screw_positions:
+    r = case.M2_BOSS_D / 2 + case.BOSS_OUTER_MARGIN
+    px = x + math.copysign(r / math.sqrt(2), x)
+    py = y + math.copysign(r / math.sqrt(2), y)
+    probe = (
+        cq.Workplane("XY")
+        .workplane(offset=case.BASE_DEPTH - 2.0)
+        .center(px, py)
+        .circle(0.1)
+        .extrude(1.5)
+    )
+    v = intersect_volume(base, probe)
+    check(f"boss + margin backed by material at corner ({x:.1f},{y:.1f})",
+          abs(v - volume(probe)) <= 0.02,
+          f"{v:.4f} of {volume(probe):.4f} mm^3")
+
 print("Checking the face plate chamfers...")
 top_wall = case.PLATE_DEPTH - case.PLATE_INNER_H
 check("window bevel leaves a straight land",
@@ -412,7 +511,7 @@ def _window_opening(z, t=0.02):
         cq.Workplane("XY")
         .workplane(offset=z)
         .center(case.OLED_CENTER_X, case.OLED_CENTER_Y)
-        .box(case.OLED_W + 20, case.OLED_H + 12, t, centered=(True, True, False))
+        .box(case.OLED_WINDOW_W + 20, case.OLED_WINDOW_H + 12, t, centered=(True, True, False))
     )
     hole = slab.cut(case.build_plate())
     return hole.val().BoundingBox() if volume(hole) > 0 else None
@@ -421,14 +520,14 @@ def _window_opening(z, t=0.02):
 # the opening only ever widens toward the viewer.
 _inner = _window_opening(case.PLATE_INNER_H + 0.01)
 check("aperture is nominal at the inside face",
-      _inner is not None and abs(_inner.xlen - case.OLED_W) <= 0.05
-      and abs(_inner.ylen - case.OLED_H) <= 0.05,
+      _inner is not None and abs(_inner.xlen - case.OLED_WINDOW_W) <= 0.05
+      and abs(_inner.ylen - case.OLED_WINDOW_H) <= 0.05,
       f"{_inner.xlen:.2f} x {_inner.ylen:.2f} vs "
-      f"{case.OLED_W:.2f} x {case.OLED_H:.2f}" if _inner else "no opening")
+      f"{case.OLED_WINDOW_W:.2f} x {case.OLED_WINDOW_H:.2f}" if _inner else "no opening")
 
 _outer = _window_opening(case.PLATE_DEPTH - 0.03)
-_want_w = case.OLED_W + 2 * case.WINDOW_CHAMFER
-_want_h = case.OLED_H + 2 * case.WINDOW_CHAMFER
+_want_w = case.OLED_WINDOW_W + 2 * case.WINDOW_CHAMFER
+_want_h = case.OLED_WINDOW_H + 2 * case.WINDOW_CHAMFER
 check("window is bevelled open at the face",
       _outer is not None and abs(_outer.xlen - (_want_w - 0.02)) <= 0.05
       and abs(_outer.ylen - (_want_h - 0.02)) <= 0.05,
@@ -452,16 +551,17 @@ for i in range(21):
 check("window never narrows with height (no overhang)", _monotonic,
       "opening widens monotonically from inside face to outer face")
 
-# The aperture must not encroach on the OLED's own active area
-check("aperture clears the active area",
-      case.OLED_W - 2 * case.OLED_WINDOW_MARGIN >= case.OLED_ACTIVE_W - CLEAR_TOL,
-      f"aperture {case.OLED_W:.2f} vs active {case.OLED_ACTIVE_W:.2f} mm")
+# The window is meant to open onto the whole module now, not just the glass
+check("window is sized to the whole module, not just the glass",
+      case.OLED_WINDOW_W >= case.OLED_MODULE_W and case.OLED_WINDOW_H >= case.OLED_MODULE_H,
+      f"window {case.OLED_WINDOW_W:.2f} x {case.OLED_WINDOW_H:.2f} vs "
+      f"module {case.OLED_MODULE_W:.2f} x {case.OLED_MODULE_H:.2f}")
 
 # The aperture is the widest thing the window presents to the board side
-check("window clears the bearing posts",
-      case.OLED_H / 2 <= case.BEAR_POST_Y - case.BEAR_POST_D / 2,
-      f"aperture reaches Y {case.OLED_H / 2:.2f}, posts start at "
-      f"{case.BEAR_POST_Y - case.BEAR_POST_D / 2:.2f} mm")
+check("window clears the retention rails",
+      case.OLED_WINDOW_H / 2 <= case.RAIL_SHOULDER_INNER_Y,
+      f"aperture reaches Y {case.OLED_WINDOW_H / 2:.2f}, rails start at "
+      f"{case.RAIL_SHOULDER_INNER_Y:.2f} mm")
 
 # The bevelled opening must stay on the top face, clear of the face chamfer
 _top_face_bb = case.build_plate().faces(">Z").val().BoundingBox()
@@ -502,12 +602,10 @@ check("plug is a slip fit in the base cavity",
       0.05 <= case.FIT_CLEARANCE <= 0.4,
       f"{case.FIT_CLEARANCE:.2f} mm per side")
 
-# The plug hangs below the parting line -- it must not foul the SMA body
-_plug_bottom = case.PARTING_Z - case.PLUG_DEPTH
-_sma_top = case.SMA_Z + case.SMA_BODY_D / 2
-check("plug clears the SMA connector body",
-      _plug_bottom >= _sma_top,
-      f"plug bottom {_plug_bottom:.2f} vs SMA body top {_sma_top:.2f} mm")
+# Whether the plug fouls the SMA connector's stub (which now hangs down
+# from the plate, past the parting line, rather than sitting in the end
+# wall) is covered by the general "no collision: plate <-> sma" pairwise
+# check above -- against the real solid, not a formula.
 
 # The ledge that carries the plug has to sit below the board
 check("plug ledge stays below the board",
@@ -540,13 +638,13 @@ check("boss pilot hole is deep enough for that engagement",
       f"pilot {min(case.SCREW_ENGAGE + 1.5, case.BASE_DEPTH - 1.0):.2f} mm "
       f"vs engagement {case.SCREW_ENGAGE:.2f} mm")
 
-win_lo = case.OLED_CENTER_X - case.OLED_W / 2
-win_hi = case.OLED_CENTER_X + case.OLED_W / 2
+win_lo = case.OLED_CENTER_X - case.OLED_WINDOW_W / 2
+win_hi = case.OLED_CENTER_X + case.OLED_WINDOW_W / 2
 mod_lo = case.OLED_CENTER_X - case.OLED_MODULE_W / 2
 mod_hi = case.OLED_CENTER_X + case.OLED_MODULE_W / 2
-check("OLED window lies within the module footprint",
-      win_lo >= mod_lo and win_hi <= mod_hi,
-      f"window {win_lo:.2f}..{win_hi:.2f} within module {mod_lo:.2f}..{mod_hi:.2f}")
+check("OLED module fits within the window opening",
+      mod_lo >= win_lo and mod_hi <= win_hi,
+      f"module {mod_lo:.2f}..{mod_hi:.2f} within window {win_lo:.2f}..{win_hi:.2f}")
 
 # ---------------------------------------------------------------------------
 print()

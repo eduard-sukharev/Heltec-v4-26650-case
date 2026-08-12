@@ -17,7 +17,9 @@ Board dimensions come from a Heltec mechanical reference drawing; some
 component heights are still estimates -- see README.md.
 
 Usage:
-    python3 case.py       # export STL/STEP of both halves + components
+    python3 case.py       # export STL/STEP of both halves, plus a coloured
+                           # STEP/STL/glTF assembly (base, plate, cell, board,
+                           # screws) for viewing
     python3 verify.py     # collision / fit / insertion-path checks
 """
 
@@ -31,21 +33,19 @@ import os
 # ---------------------------------------------------------------------------
 
 # --- Heltec V4 board -------------------------------------------------------
-# Outline, header pitch and OLED widths are dimensioned in the Heltec
-# reference drawing. Heights/thicknesses are not, and are marked (est).
-BOARD_L = 50.2           # board length, along the cell axis
-BOARD_W = 25.5           # board width
-BOARD_T = 1.6            # PCB thickness (est -- standard 1.6mm FR4)
+# Outline and PCB thickness are measured directly off reference/heltec_v4_top.JPG
+# and reference/heltec_v4_side.JPG (own board, hand-annotated). Everything
+# else not called out there is still marked (est).
+BOARD_L = 51.0            # board length, along the cell axis (measured, excl. antenna nub)
+BOARD_W = 25.6            # board width (measured)
+BOARD_T = 1.6             # PCB thickness (measured)
 BOARD_CORNER_CHAMFER = 2.0   # angled corners shown on the drawing
 BOARD_CLEARANCE = 0.4    # slack around the board footprint
 
-# Mounting holes flanking the USB-C end (est -- the reference drawing does
-# not dimension them). The OLED module covers most of the rest of the board,
-# so this is the only end with room for screw posts.
-BOARD_HOLE_D = 2.2
-BOARD_HOLE_Y = 9.25
-BOARD_HOLE_FROM_END = 3.5
-BOARD_SCREW_LEN = 6.0    # M2x6 SHCS, board -> plate posts
+# No mounting holes anywhere on the board (confirmed against
+# reference/heltec_v4_top.JPG -- the USB-C end is just header pins, two
+# tactile buttons and the connector). The board is retained by a rail/lip
+# channel in the plate instead -- see RAIL_* below.
 
 # OLED module. Active width 27.28 and module width 33.28 are dimensioned;
 # module height 18.56 is taken from the drawing's side view. Active height
@@ -56,10 +56,16 @@ OLED_MODULE_W = 33.28
 OLED_MODULE_H = 18.56
 OLED_MODULE_THICK = 4.0      # (est) module height above the PCB top face
 OLED_TOP_GAP = 0.5           # clearance between module top and window underside
-OLED_WINDOW_MARGIN = 0.6     # window is cut this much larger than the active area
-OLED_W = OLED_ACTIVE_W + 2 * OLED_WINDOW_MARGIN
-OLED_H = OLED_ACTIVE_H + 2 * OLED_WINDOW_MARGIN
-# Module sits toward the u.FL (-X) end, ~1mm in from that board edge.
+OLED_WINDOW_MARGIN = 0.6     # window opens this much larger than the module, all
+                              # round, so the whole module (frame + corner screws)
+                              # can show through -- not just the active glass.
+OLED_WINDOW_W = OLED_MODULE_W + 2 * OLED_WINDOW_MARGIN
+OLED_WINDOW_H = OLED_MODULE_H + 2 * OLED_WINDOW_MARGIN
+# Module sits toward the u.FL (-X) end, ~1mm in from that board edge. Cross-
+# checked against the top-view photo's own directly-dimensioned "17.5mm, USB
+# edge to OLED module edge" callout, which lines up with this formula to
+# within <1mm -- the module already sits as close to the button/USB-C end as
+# the real board allows, so no extra positioning logic is needed here.
 OLED_MODULE_EDGE_GAP = 1.0
 OLED_CENTER_X = -(BOARD_L / 2 - OLED_MODULE_EDGE_GAP) + OLED_MODULE_W / 2
 OLED_CENTER_Y = 0.0
@@ -75,36 +81,55 @@ UFL_SIZE = 3.0
 UFL_H = 1.6              # (est) height above the PCB
 UFL_FROM_END = 4.0       # centre distance from the -X board edge
 
-# IPEX-to-SMA pigtail: bulkhead SMA passes through the end wall, secured
-# with its own nut outside. Standard jam-nut panel mount needs ~8.4mm.
-SMA_HOLE_D = 8.4
-SMA_NUT_AF = 9.5             # nut across-flats, for an optional recess
-SMA_BODY_D = 6.5             # (est) body diameter inside the case
-SMA_INNER_DEPTH = 7.0        # (est) how far the connector body protrudes inward
+# IPEX-to-SMA pigtail: bulkhead SMA jack, from its own datasheet (measured,
+# not estimated). Front to back: an externally-threaded barrel (what passes
+# through the panel and receives the mating connector's nut), then a nut
+# fixed (swaged) at the barrel's base so it can't back off, then a washer,
+# then the stiff coax stub before the flexible pigtail cable begins.
+SMA_THREAD_MAJOR_MIN = 6.19  # 1/4-36 UNS-2A thread major diameter, min
+SMA_THREAD_MAJOR_MAX = 6.33  # ... max -- use max for hole/clearance sizing
+SMA_BARREL_L = 13.0          # threaded barrel length
+SMA_NUT_AF = 8.0              # fixed nut, across flats
+SMA_NUT_T = 2.0                # fixed nut thickness
+SMA_WASHER_OD = 9.5           # (est) washer OD -- not dimensioned on the
+                                # datasheet; estimated a bit past the nut's
+                                # own corner-to-corner distance (AF/cos(30)
+                                # = 9.24mm for an 8mm hex), since a washer
+                                # narrower than the nut it backs couldn't
+                                # actually contact it
+SMA_WASHER_T = 2.0             # washer thickness
+SMA_PIGTAIL_D = 4.0           # stiff coax stub diameter
+SMA_PIGTAIL_L = 13.0          # stiff coax stub length, before the flexible
+                                # cable takes over
+SMA_HOLE_CLEARANCE = 0.3      # clearance hole around the barrel's max major
+                                # diameter, so the (unthreaded) panel hole
+                                # doesn't bind on the thread crest
+SMA_HOLE_D = SMA_THREAD_MAJOR_MAX + SMA_HOLE_CLEARANCE
+# Widest cross-section the connector presents to the case -- the washer --
+# governs how much clear footprint the mount needs.
+SMA_FOOTPRINT_D = SMA_WASHER_OD
 
 # --- 26650 cell -------------------------------------------------------------
-CELL_D = 26.5             # actual cell diameter incl. wrap
-CELL_L = 65.0             # actual cell length
+CELL_D = 26.7             # actual cell diameter incl. wrap (measured, 26.7+/-0.2 on the label)
+CELL_L = 65.2             # actual cell length (measured, 65.2+/-0.3 on the label)
 CELL_CLEARANCE = 0.6      # diametral slack in the cradle bore
 CELL_END_CLEARANCE = 1.0  # axial slack
 
 CELL_BORE_R = (CELL_D + CELL_CLEARANCE) / 2
 CELL_BORE_L = CELL_L + CELL_END_CLEARANCE
 
-# The cell, its bore and its insertion shaft are shifted off-centre along X,
-# toward the USB-C (+X) end and away from the SMA antenna (-X) end, to open
-# up room inside the -X end wall for the IPEX-to-SMA pigtail and the
-# connector body. Positive = toward +X. The board is NOT shifted -- it is
-# narrower than the bore (50.2 vs 66.0mm) and floats on plate-mounted posts
-# unconnected to the cell's position, so moving the cell alone is enough.
-#
-# Because the outer envelope is symmetric, every mm of offset both (a) grows
-# OUTER_L by 2mm (the +X side needs that much more to keep clearing the
-# bosses) and (b) grows the -X/antenna clearance by 2mm (the offset itself,
-# plus the same amount the envelope grew) -- a 1:2 trade of length for
-# antenna room. 3.0mm is chosen to roughly double SMA_CLEAR_DEPTH (8.05mm ->
-# ~14mm) without a disproportionate size increase (+6mm overall length).
-CELL_OFFSET_X = 3.0
+# The cell, its bore and its insertion shaft CAN be shifted off-centre along
+# X (positive = toward +X/USB-C, away from the -X/antenna end) -- kept as a
+# live parameter, not deleted, even though it's 0 now. It used to buy axial
+# room inside the -X end wall for the SMA connector's body, at a 1:2 cost of
+# case length for antenna clearance (every mm of offset grows OUTER_L by
+# 2mm, since the outer envelope stays symmetric). That trade is moot now
+# that the SMA mount lives in the PLATE's own end wall instead of the
+# BASE's (see README's "Why the SMA mount moved to the plate") -- the
+# plate's whole Z-band sits above the cell, so the connector never competes
+# with it for room regardless of this offset. Left non-zero only if some
+# future component needs axial room the same way the SMA body once did.
+CELL_OFFSET_X = 0.0
 
 # All "must not collide" sizing (case length, boss clearance, end chamfer)
 # has to use whichever side of the shifted bore is CLOSER to its end wall --
@@ -137,24 +162,39 @@ PLUG_WALL = 1.6            # plug wall thickness
 # below the board carries it, after which the plate reverts to a thin wall.
 PLUG_LEDGE = 1.5           # height of that ledge above the parting line
 FIT_CLEARANCE = 0.15       # slack between base tongue and plate skirt
-M2_HEAD_H = 2.2            # M2 socket head height clearance (defined here,
-                            # ahead of the rest of the M2 block below, because
-                            # CELL_TO_BOARD_GAP needs it)
-# Cell top -> board underside. Sized to the board-retention screw heads
-# (which recess M2_HEAD_H below the board and are modelled/checked), plus a
-# small margin -- NOT to any header-pin protrusion, because this case
-# assumes the board's 2.54mm GPIO header rows are left UNPOPULATED.
+M2_HEAD_H = 2.2            # M2 socket head height clearance, for the case's
+                            # own corner-screw counterbores
+# reference/heltec_v4_side.JPG shows a component on the board's underside
+# (RTC coin-cell holder, between the two 2.54mm header rows) standing 5.6mm
+# proud of the PCB, present whether or not the GPIO headers are populated.
+# This is the binding constraint on the gap.
+BOARD_BOTTOM_COMPONENT_H = 5.6   # measured, tallest underside component
+
+# Two more underside connectors, also visible in the side-view photo: one
+# under the OLED (GPS module connector) and one under the USB-C connector
+# (battery + solar panel connectors, modelled as a single combined footprint
+# -- the photo only resolves one ~4.8mm-wide white block there, and the real
+# split between the two isn't visible).
+CONN_W = 4.8   # X extent, measured off the side-view photo
+CONN_D = 4.8   # (est) Y depth -- not visible in the side view, assumed
+               # square, same convention as UFL_SIZE
+CONN_H = 4.0   # measured protrusion below the PCB
+# Caliper measurements are given edge-to-edge (PCB edge to the connector's
+# near face), not centre-to-centre, so these get converted to centres
+# against the board's actual (shifted) edges in build_board().
+CONN_BAT_SOLAR_EDGE_GAP = 1.3   # USB-C-end PCB edge -> battery/solar connector
+CONN_GPS_EDGE_GAP = 8.6         # antenna-end PCB edge -> GPS connector
+
+# Cell top -> board underside. Sized to clear the tallest of: any header-pin
+# protrusion, the coin-cell holder, and the two connectors above -- NOT
+# assumed zero, because this case's clearance no longer depends on the GPIO
+# header rows being left unpopulated to fit.
 #
-# That assumption matters: this gap is 80% of the case's total height that
-# is genuinely soft margin rather than a hard constraint (the cell's own
-# diameter, the floor and the wall account for the other 80% of the case's
-# height and cannot be trimmed without shrinking the cell or the walls
-# themselves). If your board DOES have headers soldered, the pins typically
-# protrude ~2-3mm below the PCB and would need this gap increased to clear
-# them -- raise HEADER_PIN_PROTRUSION below instead of this constant
-# directly, so verify.py can enforce the relationship between the two.
+# If your board DOES have headers soldered, the pins typically protrude
+# ~2-3mm below the PCB -- raise HEADER_PIN_PROTRUSION below instead of this
+# constant directly, so verify.py can enforce the relationship between the two.
 HEADER_PIN_PROTRUSION = 0.0   # mm below the PCB; 0 = headers unpopulated
-CELL_TO_BOARD_GAP = max(M2_HEAD_H, HEADER_PIN_PROTRUSION) + 0.3
+CELL_TO_BOARD_GAP = max(HEADER_PIN_PROTRUSION, BOARD_BOTTOM_COMPONENT_H, CONN_H) + 0.3
 PARTING_ABOVE_CELL = 1.0   # parting line sits this far above the cell bore
 CORNER_FILLET = 2.5
 
@@ -162,7 +202,8 @@ CORNER_FILLET = 2.5
 # Break the face plate's top outer edge so the case does not read as a slab.
 FACE_CHAMFER = 1.5
 # The display cutout is bevelled on its *face* side, matching FACE_CHAMFER's
-# 45 deg. The aperture stays OLED_W x OLED_H at the inside face and opens out
+# 45 deg. The aperture stays OLED_WINDOW_W x OLED_WINDOW_H at the inside face
+# and opens out
 # toward the viewer. Printed window-up the hole only ever widens with height,
 # so every layer is supported by the one below -- no overhang at all. Must
 # stay below the top wall thickness or no straight land is left.
@@ -195,16 +236,66 @@ MIN_BOTTOM_L = 50.0         # flat length the case stands on
 # large flanks run out against the end walls -- gets the same small break.
 PROFILE_EDGE_CHAMFER = 1.0
 
-# --- Board support posts (on the PLATE) -------------------------------------
-POST_D = M2_BOSS_D = 5.5   # screw posts, at the board's mounting holes
-BEAR_POST_D = 3.0          # bearing posts at the far end, no screw
-BEAR_POST_Y = 11.0         # outboard of the OLED module, inboard of the board edge
+# --- Board retention (rail/lip channel on the PLATE) -------------------------
+# The board has no mounting holes (confirmed off the real board photo), so it
+# can't hang from screw posts. Instead it's captured by a shoulder + lip that
+# runs along both long edges of the plate's cavity: the board is lifted up
+# into the plate from its open underside, then slid a few mm to engage the
+# lip, which hooks under its underside so it can't drop back out. The base is
+# not involved -- the cell's bore underlies the board's whole length, so a
+# base-side pedestal would have to clear the cell *and* poke up past the
+# parting line (see the module docstring for why the board hangs from the
+# plate, not the base).
+M2_BOSS_D = 5.5             # case corner screw bosses (base + plate)
+RAIL_SHOULDER_INNER_Y = 10.5     # inner edge of the wide registration shoulder;
+                                  # clears the OLED window half-height by ~0.6mm
+RAIL_OUTER_Y = BOARD_W / 2 + BOARD_CLEARANCE   # 13.2, pocket's outer edge
+RAIL_LIP_WIDTH = 1.5             # how far the retaining lip overhangs inward --
+                                  # short printable bridge, not a support-needing
+                                  # overhang
+RAIL_LIP_INNER_Y = RAIL_OUTER_Y - RAIL_LIP_WIDTH   # 11.7
+BOARD_SLOT_CLEARANCE = 0.3       # Z slack the board has inside the channel
+PRELOAD_BUMP_INTERFERENCE = 0.2  # local shoulder protrusion, elastically
+                                  # compressed when the board seats home, so it
+                                  # doesn't rattle in BOARD_SLOT_CLEARANCE
+PRELOAD_BUMP_LEN = 3.0           # mm along X -- short local dimple, not a
+                                  # full-length feature
+LIP_LEAD_IN = 5.0                # mm of rail length left lip-free at the -X
+                                  # end, as the insertion gap the board enters
+                                  # through before sliding home under the lip
 
 # --- M2 socket-head cap screw fasteners -------------------------------------
 M2_SHAFT_D = 2.2           # clearance hole for the screw shaft
 M2_HEAD_D = 4.0            # socket head diameter clearance
 M2_PILOT_D = 1.6           # pilot hole in the boss that receives the screw
-SCREW_INSET = 6.0          # boss centre inset from the outer corner
+
+# Push the boss out into the corner as far as it can go without poking
+# through the case's own outer (filleted) surface. Its closest approach to
+# the outside is along the corner's 45 deg diagonal, where the outer profile
+# is the CORNER_FILLET arc rather than a flat wall -- solved so the boss
+# (radius M2_BOSS_D/2, plus a small BOSS_OUTER_MARGIN of backing material)
+# is tangent to that arc:
+#
+#   inset = CORNER_FILLET*(1 - 1/sqrt(2)) + (M2_BOSS_D/2 + BOSS_OUTER_MARGIN)/sqrt(2)
+#
+# The boss is bigger across than a single wall is thick (M2_BOSS_D=5.5 vs
+# WALL=2.2), so it can't *also* be tangent to the inner wall without
+# breaching the outer one -- this is the closest it can get while staying
+# fully enclosed. Independent of OUTER_L/OUTER_W: the corner geometry is the
+# same regardless of how long the case is, as long as the case is bigger
+# than the corner region itself (true here by a wide margin).
+#
+# A second, unrelated constraint turns out to bind tighter: the plate's
+# M2_HEAD_D counterbore around the boss has to stay clear of the top face's
+# own FACE_CHAMFER (its edge break), or the counterbore would clip into the
+# sloped edge instead of landing on flat material.
+BOSS_OUTER_MARGIN = 0.3    # backing material left outside the boss at its
+                            # closest approach to the outer surface
+COUNTERBORE_MARGIN = 0.2   # buffer beyond exact tangency to the face chamfer
+_inset_corner = (CORNER_FILLET * (1 - 1 / math.sqrt(2))
+                 + (M2_BOSS_D / 2 + BOSS_OUTER_MARGIN) / math.sqrt(2))
+_inset_counterbore = M2_HEAD_D / 2 + FACE_CHAMFER + COUNTERBORE_MARGIN
+SCREW_INSET = max(_inset_corner, _inset_counterbore)
 
 # --- Derived Z levels (from the outside of the base floor, Z=0) -------------
 CELL_AXIS_Z = FLOOR + CELL_BORE_R
@@ -247,7 +338,10 @@ OUTER_W = INNER_W + 2 * WALL
 # now the closer one) is what sizes this -- the outer envelope is symmetric,
 # so both sides grow to match the tighter one, and the -X/antenna side ends
 # up with CELL_OFFSET_X of extra clearance beyond what this alone requires.
-BOSS_END_MARGIN = 1.5
+# Kept to the same order as the other minimal-but-safe clearances in this
+# file (BOARD_BOSS_CLEARANCE etc.), now that the boss itself sits much
+# closer to the corner and no longer needs a generous margin here too.
+BOSS_END_MARGIN = 0.5
 _min_half_len = CELL_FAR_HALF_LEN + BOSS_END_MARGIN + M2_BOSS_D / 2 + SCREW_INSET
 OUTER_L = 2 * max(_min_half_len, BOARD_L / 2 + WALL + 4.0)
 INNER_L = OUTER_L - 2 * WALL
@@ -362,13 +456,26 @@ BOTTOM_L = OUTER_L - 2 * END_CHAMFER_RUN
 END_CHAMFER_OVERHANG_DEG = math.degrees(
     math.atan2(END_CHAMFER_RUN, END_CHAMFER_RISE))
 
-# The board stays centred at X=0, Y=0 -- it is narrower than the bore and
-# floats on plate posts, so it does not need to move with the cell.
+# The board floats on the plate's rail channel rather than screw posts, so
+# nothing pins it to X=0 -- it's shifted toward +X (USB-C) instead, to close
+# most of the gap between the connector and the case's own USB cutout. Now
+# that the corner boss is tucked into the corner (SCREW_INSET above) rather
+# than sitting well inside the cavity, it's no longer the tighter
+# constraint -- whichever of the two actually binds wins.
 # USB-C faces +X, antenna -X.
-BOARD_CONNECTOR_END_X = BOARD_L / 2
-BOARD_FAR_END_X = -BOARD_L / 2
-BOARD_HOLE_X = BOARD_CONNECTOR_END_X - BOARD_HOLE_FROM_END
-BEAR_POST_X = BOARD_FAR_END_X + BOARD_HOLE_FROM_END
+BOARD_USB_WALL_CLEARANCE = 0.3   # target gap, USB-C face to inner wall
+BOARD_BOSS_CLEARANCE = 0.3       # gap kept from the +X corner screw boss
+_shift_for_usb = (INNER_L / 2 - BOARD_USB_WALL_CLEARANCE) - (BOARD_L / 2 + USB_OVERHANG)
+_shift_max_boss = (OUTER_L / 2 - SCREW_INSET) - M2_BOSS_D / 2 - BOARD_BOSS_CLEARANCE \
+                  - (BOARD_L / 2 + BOARD_CLEARANCE)
+# Getting closer than this would mean moving/shrinking the corner boss or
+# growing OUTER_L -- out of scope here.
+BOARD_CENTER_X = min(_shift_for_usb, _shift_max_boss)
+
+BOARD_CONNECTOR_END_X = BOARD_L / 2 + BOARD_CENTER_X
+BOARD_FAR_END_X = -BOARD_L / 2 + BOARD_CENTER_X
+OLED_CENTER_X += BOARD_CENTER_X
+USB_CENTER_X = BOARD_CONNECTOR_END_X + USB_OVERHANG - USB_DEPTH / 2
 
 # --- Cell insertion shaft ---------------------------------------------------
 # Straight rectangular prism, from the widest point of the cradle bore up
@@ -379,10 +486,39 @@ SHAFT_L = CELL_BORE_L
 SHAFT_Z0 = CELL_AXIS_Z         # cradle's widest point
 SHAFT_Z1 = BASE_DEPTH          # open at the top of the base
 
-# SMA bulkhead sits in the -X end wall, above the cradle and below the
-# parting line, and stops short of the cell's (now offset) near end.
-SMA_Z = (CELL_AXIS_Z + PARTING_Z) / 2
+# SMA mount: axial, through the PLATE's own -X end wall -- the "profile"
+# (short-end) wall of the lid, the same orientation as the original
+# axial mount, just carried by the plate instead of the base. Not through
+# the top face: a vertical mount was tried first, but a horizontal one
+# keeps the connector's usual front-facing orientation.
+#
+# This sidesteps the cell entirely: the plate's whole Z-band sits above
+# CELL_TOP_Z, so unlike a base-mounted axial hole, X position here isn't
+# limited by SMA_CLEAR_DEPTH / the cell's near end at all -- the only axial
+# limit is the board's own far edge. SMA_CLEAR_DEPTH is kept only as the
+# still-relevant number for "how much room CELL_OFFSET_X buys," referenced
+# from README's old-axial-mount comparison.
 SMA_CLEAR_DEPTH = (INNER_L / 2) - CELL_NEAR_HALF_LEN
+
+# Order, outward to inward, per the datasheet: threaded barrel, then the
+# washer flush against the wall's inside face (no standoff -- this is what
+# actually locates the connector, the same way it's captured on the real
+# panel), then the fixed nut right behind the washer, then the stiff
+# pigtail stub. SMA_WASHER_OUTER_X is exactly the plate's own wall inner
+# face -- zero gap, not offset inward for any reason.
+SMA_WASHER_OUTER_X = -(INNER_L / 2)
+
+# The plate's half-lap ledge (PLUG_LEDGE tall, PLUG_WALL thick, inset by
+# FIT_CLEARANCE) is real solid material right at the wall's inner face,
+# though only for Z <= PLUG_LEDGE -- exactly where the washer, flush
+# against the wall with no offset, would otherwise collide with it. Rather
+# than move the washer to dodge it, the ledge gets a local notch instead
+# (see build_plate()), the same pattern already used to let the case
+# screw bosses through the plug -- so SMA_Z is free to sit wherever leaves
+# the most margin to the ceiling, not pinned by the ledge at all.
+SMA_Z_LOCAL = PLATE_INNER_H / 2
+SMA_Z = PARTING_Z + SMA_Z_LOCAL   # global
+SMA_NOTCH_R = SMA_WASHER_OD / 2 + FIT_CLEARANCE
 
 
 def _rounded_box(length, width, height, z0, fillet):
@@ -503,7 +639,7 @@ def _oled_window_cutter():
         cq.Workplane("XY")
         .workplane(offset=PLATE_INNER_H - 1)
         .center(OLED_CENTER_X, OLED_CENTER_Y)
-        .rect(OLED_W, OLED_H)
+        .rect(OLED_WINDOW_W, OLED_WINDOW_H)
         .extrude(PLATE_DEPTH - PLATE_INNER_H + 2)
     )
 
@@ -521,6 +657,37 @@ def _usb_cutter():
         .center(0, BOARD_TOP_Z + USB_H / 2)
         .rect(USB_W + 1.0, USB_H + 1.0)
         .extrude(-(WALL + 8))
+    )
+
+
+def _sma_cutter():
+    """SMA panel hole, axial through the plate's own -X end wall at
+    (Y=0, SMA_Z_LOCAL) -- plate-local coordinates (Z=0 at the parting
+    line). Just the wall itself: the washer that sits flush behind it
+    needs the half-lap ledge notched separately (see _sma_ledge_notch()),
+    since the ledge is wider than this hole."""
+    return (
+        cq.Workplane("YZ")
+        .workplane(offset=-OUTER_L / 2)
+        .center(0, SMA_Z_LOCAL)
+        .circle(SMA_HOLE_D / 2)
+        .extrude(WALL + 2)
+    )
+
+
+def _sma_ledge_notch():
+    """Clears the half-lap ledge/plug locally where the SMA washer sits
+    flush against the wall -- same pattern as the screw-boss notches
+    below, just swept along X (the connector's own axis) instead of Z.
+    Starts at the wall's *inner* face, not the outer one: the actual
+    through-wall hole stays barrel-sized (_sma_cutter()) -- this only
+    widens the ledge/plug material behind it, not the wall itself."""
+    return (
+        cq.Workplane("YZ")
+        .workplane(offset=-INNER_L / 2)
+        .center(0, SMA_Z_LOCAL)
+        .circle(SMA_NOTCH_R)
+        .extrude(SMA_WASHER_T + 1.5)
     )
 
 
@@ -549,14 +716,11 @@ def build_base(break_runout=True):
     # silently trapping the cell.
     base = base.cut(insertion_shaft())
 
-    # SMA antenna bulkhead hole through the -X end wall
-    base = base.cut(
-        cq.Workplane("YZ")
-        .workplane(offset=-OUTER_L / 2)
-        .center(0, SMA_Z)
-        .circle(SMA_HOLE_D / 2)
-        .extrude(WALL + 2)
-    )
+    # No SMA hole in the BASE's portion of the -X end wall -- the mount
+    # lives entirely in the PLATE's portion of that same wall instead (see
+    # SMA_Z / _sma_cutter()), since the plate's Z-band sits above the cell
+    # and isn't limited by SMA_CLEAR_DEPTH the way a base-mounted hole
+    # would be.
 
     # No tongue: the base ends flat at PARTING_Z with a full-thickness wall.
     # The plate's plug drops into the cavity to locate the two halves.
@@ -635,41 +799,61 @@ def build_plate():
             .extrude(PLUG_DEPTH + 1)
         )
 
+    # Same idea, for the SMA washer sitting flush against the -X wall.
+    plate = plate.cut(_sma_ledge_notch())
+
     # Break the top outer edge. Done here, while the top face is still a
     # plain rectangle, so the edge selection cannot pick up the window or
     # the screw counterbores cut later.
     plate = plate.faces(">Z").edges().chamfer(FACE_CHAMFER)
 
-    post_h = PLATE_INNER_H - BOARD_TOP_LOCAL
+    # Board retention: a shoulder (Y registration + top-face contact) plus a
+    # narrower lip (traps the underside) along both long edges. The board is
+    # lifted up into the plate through its open underside, then slid toward
+    # +X to hook under the lip -- LIP_LEAD_IN at the -X end is where it
+    # enters unobstructed. The rails' +X ends double as the board's X
+    # endstop, which is what keeps the USB-C connector registered against
+    # the case's cutout.
+    rail_x0 = BOARD_FAR_END_X - 1.0
+    rail_x1 = BOARD_CONNECTOR_END_X
+    rail_len = rail_x1 - rail_x0
+    lip_x0 = rail_x0 + LIP_LEAD_IN
+    lip_len = rail_x1 - lip_x0
+    shoulder_h = PLATE_INNER_H - BOARD_TOP_LOCAL
+    # The lip is a thin shelf that only occupies the slot clearance just
+    # below the board's underside -- it must NOT reach up to BOARD_TOP_LOCAL,
+    # or it would fill the whole board-thickness slot the board sits in.
+    lip_bottom = BOARD_UNDER_LOCAL - BOARD_SLOT_CLEARANCE
+    lip_h = BOARD_SLOT_CLEARANCE
 
-    # Screw posts at the board's mounting holes (USB-C end), tapped for M2
-    # screws driven up through the board from below.
-    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
+    for sign in (1, -1):
+        shoulder_cy = sign * (RAIL_SHOULDER_INNER_Y + RAIL_OUTER_Y) / 2
+        shoulder_w = RAIL_OUTER_Y - RAIL_SHOULDER_INNER_Y
         plate = plate.union(
             cq.Workplane("XY")
             .workplane(offset=BOARD_TOP_LOCAL)
-            .center(BOARD_HOLE_X, y)
-            .circle(POST_D / 2)
-            .extrude(post_h)
+            .center((rail_x0 + rail_x1) / 2, shoulder_cy)
+            .rect(rail_len, shoulder_w)
+            .extrude(shoulder_h)
         )
-    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
-        plate = plate.cut(
-            cq.Workplane("XY")
-            .workplane(offset=BOARD_TOP_LOCAL)
-            .center(BOARD_HOLE_X, y)
-            .circle(M2_PILOT_D / 2)
-            .extrude(min(BOARD_SCREW_LEN - BOARD_T + 0.5, post_h - 0.8))
-        )
-
-    # Bearing posts at the far end -- no screw, they just locate the board's
-    # far edge. Placed outboard of the OLED module, inboard of the board edge.
-    for y in (BEAR_POST_Y, -BEAR_POST_Y):
+        lip_cy = sign * (RAIL_LIP_INNER_Y + RAIL_OUTER_Y) / 2
+        lip_w = RAIL_OUTER_Y - RAIL_LIP_INNER_Y
         plate = plate.union(
             cq.Workplane("XY")
-            .workplane(offset=BOARD_TOP_LOCAL)
-            .center(BEAR_POST_X, y)
-            .circle(BEAR_POST_D / 2)
-            .extrude(post_h)
+            .workplane(offset=lip_bottom)
+            .center((lip_x0 + rail_x1) / 2, lip_cy)
+            .rect(lip_len, lip_w)
+            .extrude(lip_h)
+        )
+        # Preload dimple: local interference the board elastically
+        # compresses as it seats home, so it doesn't rattle in
+        # BOARD_SLOT_CLEARANCE.
+        plate = plate.union(
+            cq.Workplane("XY")
+            .workplane(offset=BOARD_TOP_LOCAL - PRELOAD_BUMP_INTERFERENCE)
+            .center((rail_x0 + rail_x1) / 2, shoulder_cy)
+            .rect(PRELOAD_BUMP_LEN, shoulder_w)
+            .extrude(PRELOAD_BUMP_INTERFERENCE)
         )
 
     # Case screw posts: rise from the flange underside to the plate ceiling,
@@ -686,7 +870,7 @@ def build_plate():
 
     # OLED window through the top face, then bevel its outer edge. Using the
     # chamfer tool on the finished edge keeps the cutter a plain prism, so
-    # the aperture stays exactly OLED_W x OLED_H at its narrowest.
+    # the aperture stays exactly OLED_WINDOW_W x OLED_WINDOW_H at its narrowest.
     #
     # .faces(">Z").edges() would also pick up the plate's outer perimeter, so
     # the window's four edges are isolated with a box selector around them.
@@ -696,11 +880,11 @@ def build_plate():
         plate.faces(">Z")
         .edges(
             cq.selectors.BoxSelector(
-                (OLED_CENTER_X - OLED_W / 2 - _pad,
-                 OLED_CENTER_Y - OLED_H / 2 - _pad,
+                (OLED_CENTER_X - OLED_WINDOW_W / 2 - _pad,
+                 OLED_CENTER_Y - OLED_WINDOW_H / 2 - _pad,
                  PLATE_DEPTH - 1.0),
-                (OLED_CENTER_X + OLED_W / 2 + _pad,
-                 OLED_CENTER_Y + OLED_H / 2 + _pad,
+                (OLED_CENTER_X + OLED_WINDOW_W / 2 + _pad,
+                 OLED_CENTER_Y + OLED_WINDOW_H / 2 + _pad,
                  PLATE_DEPTH + 1.0),
                 boundingbox=True,
             )
@@ -721,6 +905,8 @@ def build_plate():
             .extrude(M2_HEAD_H + 1)
         )
 
+    plate = plate.cut(_sma_cutter())
+
     return plate.cut(_usb_cutter().translate((0, 0, -PARTING_Z)))
 
 
@@ -740,22 +926,16 @@ def build_cell():
 
 
 def build_board():
-    """Simplified Heltec V4: PCB + OLED module + USB-C + u.FL connector."""
+    """Simplified Heltec V4: PCB + OLED module + USB-C + u.FL connector on
+    top, GPS + battery/solar connectors on the underside."""
     pcb = (
         cq.Workplane("XY")
         .workplane(offset=BOARD_UNDER_Z)
+        .center(BOARD_CENTER_X, 0)
         .box(BOARD_L, BOARD_W, BOARD_T, centered=(True, True, False))
         .edges("|Z")
         .chamfer(BOARD_CORNER_CHAMFER)
     )
-    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
-        pcb = pcb.cut(
-            cq.Workplane("XY")
-            .workplane(offset=BOARD_UNDER_Z)
-            .center(BOARD_HOLE_X, y)
-            .circle(BOARD_HOLE_D / 2)
-            .extrude(BOARD_T)
-        )
 
     oled = (
         cq.Workplane("XY")
@@ -767,7 +947,7 @@ def build_board():
     usb = (
         cq.Workplane("XY")
         .workplane(offset=BOARD_TOP_Z)
-        .center(BOARD_CONNECTOR_END_X + USB_OVERHANG - USB_DEPTH / 2, 0)
+        .center(USB_CENTER_X, 0)
         .rect(USB_DEPTH, USB_W)
         .extrude(USB_H)
     )
@@ -778,33 +958,67 @@ def build_board():
         .rect(UFL_SIZE, UFL_SIZE)
         .extrude(UFL_H)
     )
-    return pcb.union(oled).union(usb).union(ufl)
-
-
-def build_board_screws():
-    """M2 screw heads under the board -- they must clear the cell."""
-    heads = None
-    for y in (BOARD_HOLE_Y, -BOARD_HOLE_Y):
-        h = (
-            cq.Workplane("XY")
-            .workplane(offset=BOARD_UNDER_Z - M2_HEAD_H)
-            .center(BOARD_HOLE_X, y)
-            .circle(M2_HEAD_D / 2)
-            .extrude(M2_HEAD_H)
-        )
-        heads = h if heads is None else heads.union(h)
-    return heads
-
-
-def build_sma_body():
-    """Mock of the SMA bulkhead's inboard body, to check it clears the cell."""
-    return (
-        cq.Workplane("YZ")
-        .workplane(offset=-INNER_L / 2)
-        .center(0, SMA_Z)
-        .circle(SMA_BODY_D / 2)
-        .extrude(SMA_INNER_DEPTH)
+    # GPS module connector, on the underside below the OLED module. Position
+    # is edge-referenced (calipers, off the antenna-end PCB edge), not
+    # centred under the OLED module -- the two don't coincide on the real
+    # board.
+    gps_conn_x = BOARD_FAR_END_X + CONN_GPS_EDGE_GAP + CONN_W / 2
+    gps_conn = (
+        cq.Workplane("XY")
+        .workplane(offset=BOARD_UNDER_Z)
+        .center(gps_conn_x, 0)
+        .rect(CONN_W, CONN_D)
+        .extrude(-CONN_H)
     )
+    # Battery + solar panel connectors, on the underside below USB-C.
+    # Position is edge-referenced (calipers, off the USB-C-end PCB edge).
+    power_conn_x = BOARD_CONNECTOR_END_X - CONN_BAT_SOLAR_EDGE_GAP - CONN_W / 2
+    power_conn = (
+        cq.Workplane("XY")
+        .workplane(offset=BOARD_UNDER_Z)
+        .center(power_conn_x, 0)
+        .rect(CONN_W, CONN_D)
+        .extrude(-CONN_H)
+    )
+    return pcb.union(oled).union(usb).union(ufl).union(gps_conn).union(power_conn)
+
+
+def build_sma_connector():
+    """Mock of the SMA bulkhead jack, mounted axially through the plate's
+    own -X end wall at (Y=0, SMA_Z). Outward (-X) to inward (+X), per the
+    datasheet: the threaded barrel (mostly exposed outside the case), the
+    washer -- flush against the wall's inside face at SMA_WASHER_OUTER_X,
+    no offset -- the fixed nut right behind it, then the stiff pigtail
+    stub."""
+    barrel = (
+        cq.Workplane("YZ")
+        .workplane(offset=SMA_WASHER_OUTER_X)
+        .center(0, SMA_Z)
+        .circle(SMA_THREAD_MAJOR_MAX / 2)
+        .extrude(-SMA_BARREL_L)
+    )
+    washer = (
+        cq.Workplane("YZ")
+        .workplane(offset=SMA_WASHER_OUTER_X)
+        .center(0, SMA_Z)
+        .circle(SMA_WASHER_OD / 2)
+        .extrude(SMA_WASHER_T)
+    )
+    nut = (
+        cq.Workplane("YZ")
+        .workplane(offset=SMA_WASHER_OUTER_X + SMA_WASHER_T)
+        .center(0, SMA_Z)
+        .polygon(6, SMA_NUT_AF / math.cos(math.pi / 6))
+        .extrude(SMA_NUT_T)
+    )
+    stub = (
+        cq.Workplane("YZ")
+        .workplane(offset=SMA_WASHER_OUTER_X + SMA_WASHER_T + SMA_NUT_T)
+        .center(0, SMA_Z)
+        .circle(SMA_PIGTAIL_D / 2)
+        .extrude(SMA_PIGTAIL_L)
+    )
+    return barrel.union(nut).union(washer).union(stub)
 
 
 def assemble():
@@ -814,7 +1028,7 @@ def assemble():
         "plate": build_plate().translate((0, 0, PARTING_Z)),
         "cell": build_cell(),
         "board": build_board(),
-        "screws": build_board_screws(),
+        "sma": build_sma_connector(),
     }
 
 
@@ -832,9 +1046,12 @@ if __name__ == "__main__":
     assy.add(parts["plate"], name="plate", color=cq.Color(0.90, 0.60, 0.20, 0.6))
     assy.add(parts["cell"], name="cell", color=cq.Color(0.35, 0.75, 0.35, 1.0))
     assy.add(parts["board"], name="board", color=cq.Color(0.80, 0.25, 0.25, 1.0))
+    assy.add(parts["sma"], name="sma", color=cq.Color(0.75, 0.75, 0.78, 1.0))
     assy.save("output/heltec_v4_case_assembly.step")
+    assy.save("output/heltec_v4_case_assembly.stl")
+    assy.save("output/heltec_v4_case_assembly.gltf")
 
-    print("Exported STL/STEP to ./output/")
+    print("Exported STL/STEP/glTF to ./output/")
     print(f"Outer size    : {OUTER_L:.1f} x {OUTER_W:.1f} x {TOTAL_HEIGHT:.1f} mm")
     print(f"Insertion shaft: {SHAFT_L:.1f} x {SHAFT_W:.1f} mm, "
           f"Z {SHAFT_Z0:.2f} -> {SHAFT_Z1:.2f}")

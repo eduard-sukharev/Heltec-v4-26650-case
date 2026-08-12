@@ -20,7 +20,7 @@
 # case.py, run `make` and git-add the updated docs/preview.png along with
 # your other changes.
 
-PYTHON  ?= python3
+PYTHON  ?= . ~/miniforge/bin/activate && python3
 OUTDIR  := output
 DOCDIR  := docs
 
@@ -29,7 +29,9 @@ GENERATED := \
 	$(OUTDIR)/heltec_v4_case_base.step \
 	$(OUTDIR)/heltec_v4_case_plate.stl \
 	$(OUTDIR)/heltec_v4_case_plate.step \
-	$(OUTDIR)/heltec_v4_case_assembly.step
+	$(OUTDIR)/heltec_v4_case_assembly.step \
+	$(OUTDIR)/heltec_v4_case_assembly.stl \
+	$(OUTDIR)/heltec_v4_case_assembly.gltf
 
 .PHONY: all generate preview verify clean
 
@@ -40,8 +42,8 @@ generate: $(OUTDIR)/.generated preview
 
 all: generate verify
 
-# case.py writes all five STL/STEP files together in one process, so they
-# share a single rule with a stamp file: any of them missing, or case.py
+# case.py writes all seven STL/STEP/glTF files together in one process, so
+# they share a single rule with a stamp file: any of them missing, or case.py
 # newer than the stamp, re-runs the whole generator exactly once.
 $(OUTDIR)/.generated: case.py
 	$(PYTHON) case.py
