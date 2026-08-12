@@ -110,7 +110,8 @@ check(
 )
 
 # Sample the true clear opening at a series of heights, the way the earlier
-# rail design failed: narrowest opening anywhere above the cradle.
+# rail design failed: narrowest opening anywhere above the cradle. The slab
+# is centred on the shaft's own (offset) centreline, not the case's X=0.
 print("Sampling clear opening above the cradle...")
 worst = (None, 1e9)
 for i in range(41):
@@ -119,6 +120,7 @@ for i in range(41):
     slab = (
         cq.Workplane("XY")
         .workplane(offset=z)
+        .center(case.CELL_OFFSET_X, 0)
         .box(case.SHAFT_L, case.INNER_W, 0.05, centered=(True, True, False))
     )
     free = volume(slab) - intersect_volume(base, slab)
@@ -132,12 +134,16 @@ check(
     f"{worst[1]:.2f} mm at Z={worst[0]:.2f} (cell needs {case.CELL_D:.2f})",
 )
 
-# Screw bosses must sit clear of the shaft, or they stand in the cell's way
+# Screw bosses must sit clear of the shaft, or they stand in the cell's way.
+# The shaft is offset toward +X, so that is the tighter side -- both bosses
+# sit at the same |x|, so checking against CELL_FAR_HALF_LEN (rather than
+# SHAFT_L/2) is what actually matches how OUTER_L was sized.
 boss_inner_x = min(abs(x) for x, _ in case.screw_positions) - case.M2_BOSS_D / 2
 check(
     "screw bosses clear the insertion shaft",
-    boss_inner_x >= case.SHAFT_L / 2,
-    f"boss inner edge {boss_inner_x:.2f} vs shaft end {case.SHAFT_L / 2:.2f} mm",
+    boss_inner_x >= case.CELL_FAR_HALF_LEN,
+    f"boss inner edge {boss_inner_x:.2f} vs shaft +X end "
+    f"{case.CELL_FAR_HALF_LEN:.2f} mm",
 )
 
 # The board and its posts live on the plate, so they must not sit in the
@@ -194,6 +200,19 @@ check("gap: cell top -> board underside", gap > 0, f"{gap:.2f} mm")
 head_gap = (case.BOARD_UNDER_Z - case.M2_HEAD_H) - case.CELL_TOP_Z
 check("gap: cell top -> board screw heads", head_gap > 0, f"{head_gap:.2f} mm")
 
+# CELL_TO_BOARD_GAP was trimmed to the screw heads specifically on the
+# assumption the board's GPIO headers are unpopulated (HEADER_PIN_PROTRUSION
+# = 0). If that is ever raised, the gap formula must actually track it --
+# this is what stops someone flipping the assumption without the geometry
+# responding, which is exactly the kind of thing this suite exists to catch.
+check("cell-to-board gap accounts for header pins",
+      case.CELL_TO_BOARD_GAP >= case.HEADER_PIN_PROTRUSION + 0.3 - CLEAR_TOL,
+      f"gap {case.CELL_TO_BOARD_GAP:.2f} vs pins {case.HEADER_PIN_PROTRUSION:.2f} + 0.3 mm")
+pin_gap = case.BOARD_UNDER_Z - case.HEADER_PIN_PROTRUSION - case.CELL_TOP_Z
+check("gap: cell top -> header pin tips (if populated)",
+      pin_gap > 0,
+      f"{pin_gap:.2f} mm (HEADER_PIN_PROTRUSION={case.HEADER_PIN_PROTRUSION:.2f})")
+
 check("board fits between side walls",
       case.BOARD_W + 2 * case.BOARD_CLEARANCE <= case.INNER_W,
       f"board {case.BOARD_W:.1f} + slack vs cavity {case.INNER_W:.1f} mm")
@@ -204,6 +223,22 @@ check("board length fits the cavity",
 check("SMA body clears the cell end",
       case.SMA_INNER_DEPTH <= case.SMA_CLEAR_DEPTH,
       f"needs {case.SMA_INNER_DEPTH:.2f}, available {case.SMA_CLEAR_DEPTH:.2f} mm")
+
+# Measure the offset directly off the built bore geometry (not the formulas
+# used to size it) and confirm it actually favours the antenna end -- this
+# is what the whole CELL_OFFSET_X change is for.
+_bore_bb = case.cell_bore().val().BoundingBox()
+_gap_usb = case.INNER_L / 2 - _bore_bb.xmax
+_gap_antenna = _bore_bb.xmin - (-case.INNER_L / 2)
+check("cell offset is toward +X (away from the antenna)",
+      case.CELL_OFFSET_X > 0,
+      f"CELL_OFFSET_X = {case.CELL_OFFSET_X:.2f} mm")
+check("antenna end has more clearance than the USB end",
+      _gap_antenna > _gap_usb,
+      f"antenna {_gap_antenna:.2f} mm vs USB {_gap_usb:.2f} mm")
+check("measured antenna clearance matches SMA_CLEAR_DEPTH",
+      abs(_gap_antenna - case.SMA_CLEAR_DEPTH) <= CLEAR_TOL,
+      f"measured {_gap_antenna:.2f} vs formula {case.SMA_CLEAR_DEPTH:.2f} mm")
 sma_lo = case.SMA_Z - case.SMA_HOLE_D / 2
 sma_hi = case.SMA_Z + case.SMA_HOLE_D / 2
 check("SMA hole within the base's end wall",

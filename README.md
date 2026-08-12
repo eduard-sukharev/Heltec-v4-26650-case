@@ -14,7 +14,7 @@ two-piece 3D-printable enclosure for:
   panel-mount SMA bulkhead hole in the case wall
 - A single **26650** Li-ion cell as the power source
 
-Outer size **86.5 × 35.5 × 40.9 mm**.
+Outer size **92.5 × 35.5 × 39.9 mm**.
 
 ## Files
 
@@ -92,8 +92,11 @@ end walls get a 1.0 mm break, so nothing around the profile is left sharp.
 
 This is not just cosmetic. The cell is round, so the corners of a
 rectangular tub are dead material — the chamfer deletes exactly the wedge
-that sits outboard of the cell's curve. It takes the base from **38.8 cm³
-down to 28.7 cm³, a 26% saving**, without touching any clearance.
+that sits outboard of the cell's curve, without touching any clearance.
+(The base is currently 30.2 cm³ with the chamfer; the exact saving vs. an
+unchamfered tub shifts slightly as other constants like `CELL_OFFSET_X`
+change the case's length — `make verify` prints the current base volume if
+you want the live number.)
 
 The chamfer is *derived*, not hardcoded. `_max_chamfer_run()` grows it until
 one of two limits binds:
@@ -132,6 +135,57 @@ pilot hole anyway.
 is rise/run, and at 1.0 the flank is a 45° overhang off the bed — the usual
 unsupported limit. Set it above 1.0 for a steeper, safer wall that saves
 less. `verify.py` fails the build if the overhang ever exceeds 45°.
+
+### How shallow can this get? (depth analysis)
+
+Full Z-stack, base floor to plate top, at the current settings:
+
+| Layer | Height | Hard or soft? |
+|---|---|---|
+| Floor | 2.00 mm | **Hard** — minimum structural floor |
+| Cradle (floor → cell axis) | 13.55 mm | **Hard** — half the cell's own diameter |
+| Cell (axis → bore top) | 13.55 mm | **Hard** — the other half |
+| Cell top → board underside | 2.50 mm | Soft (screw heads + margin) |
+| Board PCB | 1.60 mm | **Hard** — real PCB thickness |
+| OLED module | 4.00 mm | Soft — **estimate**, not measured |
+| Module top → window | 0.50 mm | Soft, already minimal |
+| Plate top wall | 2.20 mm | **Hard** — matches `WALL` |
+| **Total** | **39.90 mm** | |
+
+**80% of the case's height (32.9 of 39.9 mm) is structurally fixed** — the
+cell's own diameter plus the floor, the PCB and the top wall. That's the
+real cost of stacking the cell directly under the board rather than beside
+it, and it can't be trimmed without shrinking the cell, thinning the walls,
+or going back to the side-by-side layout (which trades this compactness
+for ~131 mm of length instead — see the design history in this file's git
+log if you want that trade the other way).
+
+Of the remaining 20%, one reduction has actually been made:
+
+- **`CELL_TO_BOARD_GAP` was cut from 3.5 mm to 2.5 mm** (saving 1.0 mm off
+  the total), sized to exactly what the board-retention screw heads need
+  (`M2_HEAD_H` = 2.2 mm) plus a 0.3 mm margin — **not** to any header-pin
+  protrusion. This case assumes the board's 2.54 mm GPIO header rows are
+  left **unpopulated** (`HEADER_PIN_PROTRUSION = 0`). If your board has
+  headers soldered, the pins typically protrude 2–3 mm below the PCB and
+  would land inside this gap — raise `HEADER_PIN_PROTRUSION` before
+  printing, which flows through to `CELL_TO_BOARD_GAP` automatically and is
+  checked by `verify.py`.
+
+Worth flagging: cutting this gap took the clearance between the cell and
+the board's *screw heads* specifically (not just the PCB) down to
+**0.60 mm** (from 1.60 mm before). That's still positive and enforced by
+`verify.py`, but it's thin — if you print with looser tolerances than
+`CELL_CLEARANCE` (0.6 mm total) assumes, this is the margin that goes first.
+
+The one dimension left on the table is **`OLED_MODULE_THICK` (4.0 mm)** —
+flagged `(est)` since the reference drawing doesn't dimension it, and
+carried over unchanged since the very first version of this model. Many
+0.96" OLED modules used on Heltec-style boards are reflow-soldered
+low-profile assemblies closer to 1.5–2 mm; if you can measure your actual
+module, dropping this to a real value is worth up to ~2 mm more — a bigger
+lever than anything else remaining, but not one to guess at without the
+part in hand.
 
 ### Half-lap interface
 
@@ -174,9 +228,9 @@ below, so the stack is:
 ```
 head seats on the post top ─┐
    counterbore (2.2 mm, the full top wall)
-   plate post  8.60 mm   ────┤ M2x16
+   plate post  7.60 mm   ────┤ M2x16
    ── parting line ──
-   base boss   7.40 mm engagement
+   base boss   8.40 mm engagement
 ```
 
 The counterbore is exactly as deep as the plate's top wall, so **the head
@@ -248,19 +302,51 @@ features` check.
 - The board's screw heads sit under the PCB with **1.6 mm** of clearance to
   the cell.
 
-### Why the case is 86.5 mm long
-
+### Why the case is 92.5 mm long
 
 The insertion shaft spans most of the cavity width, so a screw boss placed
 anywhere within its length would stand in the cell's way. `OUTER_L` is
 therefore derived so the corner bosses clear the ends of the shaft:
 
 ```
-OUTER_L = 2 × (CELL_BORE_L/2 + BOSS_END_MARGIN + M2_BOSS_D/2 + SCREW_INSET)
+OUTER_L = 2 × (CELL_FAR_HALF_LEN + BOSS_END_MARGIN + M2_BOSS_D/2 + SCREW_INSET)
 ```
 
 This is checked by `verify.py`, so changing the cell or screw parameters
 keeps the constraint satisfied automatically.
+
+### The cell is off-centre, to give the antenna pigtail more room
+
+`CELL_OFFSET_X` (3.0 mm) shifts the cell, its bore and its insertion shaft
+toward the USB-C (+X) end and away from the SMA antenna (-X) end. The board
+stays centred at X=0 — it's narrower than the bore (50.2 vs 66.0 mm) and
+floats on plate-mounted posts that don't reference the cell's position, so
+moving the cell alone is enough; nothing else has to move with it.
+
+The point is headroom for the IPEX-to-SMA pigtail and the bulkhead
+connector's body inside the -X end wall:
+
+| | Before | After |
+|---|---|---|
+| SMA-side clearance (`SMA_CLEAR_DEPTH`) | 8.05 mm | **14.05 mm** |
+| USB-side clearance | 8.05 mm | 8.05 mm (unchanged) |
+| Case length | 86.5 mm | 92.5 mm |
+
+Because the outer envelope stays symmetric (`OUTER_L` applies equally to
+both ends), every mm of offset both (a) grows `OUTER_L` by 2 mm — the +X end
+now needs that much more to keep clearing the screw bosses — and (b) grows
+the antenna-side clearance by 2 mm, so it's a 1:2 trade of case length for
+antenna room. `CELL_OFFSET_X = 3.0` was chosen to roughly double the
+original clearance without a disproportionate size increase; a 5 mm offset
+would have given 18 mm of clearance (more than the SMA hole's own diameter)
+at the cost of +10 mm of length, which wasn't worth it.
+
+This is derived, not asymmetric-by-hand: every formula that has to avoid
+the bore (`OUTER_L`, the screw-boss clearance check, the end chamfer's wall
+check) now works off `CELL_FAR_HALF_LEN` — the half-length of whichever
+side is actually closer to its wall — rather than assuming the bore is
+centred. `verify.py` also measures the offset off the *built* bore geometry
+and checks it actually favours the antenna end, not just the formula.
 
 ## Verifying fit
 
@@ -313,10 +399,10 @@ All checks currently pass. Key measured clearances:
 | Narrowest opening above cradle | 31.10 mm (cell needs 26.50) |
 | Cell radial slack in cradle | 0.30 mm |
 | Cell axial slack | 1.00 mm |
-| Cell top → board underside | 3.80 mm |
-| Cell top → board screw heads | 1.60 mm |
-| Boss inner edge vs. shaft end | 34.50 vs 33.00 mm |
-| SMA body depth needed / available | 7.00 / 8.05 mm |
+| Cell top → board underside | 2.80 mm |
+| Cell top → board screw heads | 0.60 mm |
+| Boss inner edge vs. shaft +X end | 37.50 vs 36.00 mm |
+| SMA body depth needed / available | 7.00 / 14.05 mm |
 | Bearing post inner edge vs. OLED module | 9.50 vs 9.28 mm |
 | Bearing post outer edge vs. board edge | 12.50 vs 12.75 mm |
 | Headroom above OLED module | 0.50 mm |
@@ -324,7 +410,7 @@ All checks currently pass. Key measured clearances:
 | Plug fit clearance | 0.15 mm per side |
 | Plug bottom vs SMA body top | 27.10 vs 26.08 mm |
 | Material under each screw head | 2.63 mm³ |
-| Case screw engagement in boss | 7.40 mm |
+| Case screw engagement in boss | 8.40 mm |
 | Chamfer wall over the cell bore | 3.39 mm (min 2.20) |
 | Chamfer overhang | 45.0° (limit 45°) |
 | Flat the case stands on | 83.50 × 14.00 mm |
@@ -361,6 +447,8 @@ thickness, component heights, and connector positions.
 | `END_CHAMFER`, `PROFILE_EDGE_CHAMFER` | Small breaks on the short ends and the flank runouts |
 | `FACE_CHAMFER`, `WINDOW_CHAMFER` | Face plate edge break and display-cutout bevel |
 | `PLUG_DEPTH`, `PLUG_WALL`, `PLUG_LEDGE`, `FIT_CLEARANCE` | Half-lap plug geometry and fit |
+| `CELL_OFFSET_X` | How far the cell is shifted toward USB-C / away from the antenna |
+| `HEADER_PIN_PROTRUSION` | **Set this if your board's GPIO headers are populated** — default assumes unpopulated; see "How shallow can this get?" |
 
 `OLED_ACTIVE_H` is *derived* from the dimensioned active width assuming a
 128×64 panel; if your display differs, set it directly.

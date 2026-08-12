@@ -91,6 +91,29 @@ CELL_END_CLEARANCE = 1.0  # axial slack
 CELL_BORE_R = (CELL_D + CELL_CLEARANCE) / 2
 CELL_BORE_L = CELL_L + CELL_END_CLEARANCE
 
+# The cell, its bore and its insertion shaft are shifted off-centre along X,
+# toward the USB-C (+X) end and away from the SMA antenna (-X) end, to open
+# up room inside the -X end wall for the IPEX-to-SMA pigtail and the
+# connector body. Positive = toward +X. The board is NOT shifted -- it is
+# narrower than the bore (50.2 vs 66.0mm) and floats on plate-mounted posts
+# unconnected to the cell's position, so moving the cell alone is enough.
+#
+# Because the outer envelope is symmetric, every mm of offset both (a) grows
+# OUTER_L by 2mm (the +X side needs that much more to keep clearing the
+# bosses) and (b) grows the -X/antenna clearance by 2mm (the offset itself,
+# plus the same amount the envelope grew) -- a 1:2 trade of length for
+# antenna room. 3.0mm is chosen to roughly double SMA_CLEAR_DEPTH (8.05mm ->
+# ~14mm) without a disproportionate size increase (+6mm overall length).
+CELL_OFFSET_X = 3.0
+
+# All "must not collide" sizing (case length, boss clearance, end chamfer)
+# has to use whichever side of the shifted bore is CLOSER to its end wall --
+# that is now the +X/USB end. CELL_NEAR_HALF_LEN is the same distance on the
+# -X/antenna end, which is now larger and is what actually buys the pigtail
+# its extra room.
+CELL_FAR_HALF_LEN = CELL_BORE_L / 2 + CELL_OFFSET_X    # governs the +X side
+CELL_NEAR_HALF_LEN = CELL_BORE_L / 2 - CELL_OFFSET_X   # -X/antenna side (more room)
+
 # --- Wall / shell -----------------------------------------------------------
 WALL = 2.2                 # outer shell wall thickness
 FLOOR = 2.0                # base floor thickness under the cradle
@@ -114,7 +137,24 @@ PLUG_WALL = 1.6            # plug wall thickness
 # below the board carries it, after which the plate reverts to a thin wall.
 PLUG_LEDGE = 1.5           # height of that ledge above the parting line
 FIT_CLEARANCE = 0.15       # slack between base tongue and plate skirt
-CELL_TO_BOARD_GAP = 3.5    # cell top -> board underside (also clears screw heads)
+M2_HEAD_H = 2.2            # M2 socket head height clearance (defined here,
+                            # ahead of the rest of the M2 block below, because
+                            # CELL_TO_BOARD_GAP needs it)
+# Cell top -> board underside. Sized to the board-retention screw heads
+# (which recess M2_HEAD_H below the board and are modelled/checked), plus a
+# small margin -- NOT to any header-pin protrusion, because this case
+# assumes the board's 2.54mm GPIO header rows are left UNPOPULATED.
+#
+# That assumption matters: this gap is 80% of the case's total height that
+# is genuinely soft margin rather than a hard constraint (the cell's own
+# diameter, the floor and the wall account for the other 80% of the case's
+# height and cannot be trimmed without shrinking the cell or the walls
+# themselves). If your board DOES have headers soldered, the pins typically
+# protrude ~2-3mm below the PCB and would need this gap increased to clear
+# them -- raise HEADER_PIN_PROTRUSION below instead of this constant
+# directly, so verify.py can enforce the relationship between the two.
+HEADER_PIN_PROTRUSION = 0.0   # mm below the PCB; 0 = headers unpopulated
+CELL_TO_BOARD_GAP = max(M2_HEAD_H, HEADER_PIN_PROTRUSION) + 0.3
 PARTING_ABOVE_CELL = 1.0   # parting line sits this far above the cell bore
 CORNER_FILLET = 2.5
 
@@ -163,7 +203,6 @@ BEAR_POST_Y = 11.0         # outboard of the OLED module, inboard of the board e
 # --- M2 socket-head cap screw fasteners -------------------------------------
 M2_SHAFT_D = 2.2           # clearance hole for the screw shaft
 M2_HEAD_D = 4.0            # socket head diameter clearance
-M2_HEAD_H = 2.2            # socket head height clearance
 M2_PILOT_D = 1.6           # pilot hole in the boss that receives the screw
 SCREW_INSET = 6.0          # boss centre inset from the outer corner
 
@@ -203,9 +242,13 @@ OUTER_W = INNER_W + 2 * WALL
 
 # Length must leave room for the corner screw bosses *beyond* the ends of the
 # cell's insertion shaft -- the shaft spans most of the cavity width, so a
-# boss anywhere within its length would stand in the cell's way.
+# boss anywhere within its length would stand in the cell's way. The shaft is
+# off-centre (CELL_OFFSET_X), so CELL_FAR_HALF_LEN (the +X/USB side, which is
+# now the closer one) is what sizes this -- the outer envelope is symmetric,
+# so both sides grow to match the tighter one, and the -X/antenna side ends
+# up with CELL_OFFSET_X of extra clearance beyond what this alone requires.
 BOSS_END_MARGIN = 1.5
-_min_half_len = CELL_BORE_L / 2 + BOSS_END_MARGIN + M2_BOSS_D / 2 + SCREW_INSET
+_min_half_len = CELL_FAR_HALF_LEN + BOSS_END_MARGIN + M2_BOSS_D / 2 + SCREW_INSET
 OUTER_L = 2 * max(_min_half_len, BOARD_L / 2 + WALL + 4.0)
 INNER_L = OUTER_L - 2 * WALL
 
@@ -278,7 +321,12 @@ def _max_end_chamfer_run():
     END_CHAMFER is deliberately a small edge break, so this normally has no
     effect -- but if anyone raises it, this stops the chamfer eating into the
     cell bore's end (which doubles as the axial end stop). The bore's X
-    extent is constant, so the pinch is at the lowest height it reaches."""
+    extent is constant, so the pinch is at the lowest height it reaches.
+
+    The chamfer is symmetric (same run on both ends), so the +X/USB end --
+    the closer one now that the bore is offset -- is what has to be checked;
+    the -X/antenna end automatically has CELL_OFFSET_X more slack than this.
+    """
     bore_lo = CELL_AXIS_Z - CELL_BORE_R
     bore_hi = CELL_AXIS_Z + CELL_BORE_R
 
@@ -289,7 +337,7 @@ def _max_end_chamfer_run():
             if not (bore_lo <= z <= bore_hi):
                 continue          # no bore at this height, nothing to clear
             outer = OUTER_L / 2 - run * (1.0 - (z / rise if rise else 1.0))
-            if outer - CELL_BORE_L / 2 < MIN_END_CHAMFER_WALL:
+            if outer - CELL_FAR_HALF_LEN < MIN_END_CHAMFER_WALL:
                 return False
         return True
 
@@ -314,7 +362,9 @@ BOTTOM_L = OUTER_L - 2 * END_CHAMFER_RUN
 END_CHAMFER_OVERHANG_DEG = math.degrees(
     math.atan2(END_CHAMFER_RUN, END_CHAMFER_RISE))
 
-# Board and cell are both centred at X=0, Y=0. USB-C faces +X, antenna -X.
+# The board stays centred at X=0, Y=0 -- it is narrower than the bore and
+# floats on plate posts, so it does not need to move with the cell.
+# USB-C faces +X, antenna -X.
 BOARD_CONNECTOR_END_X = BOARD_L / 2
 BOARD_FAR_END_X = -BOARD_L / 2
 BOARD_HOLE_X = BOARD_CONNECTOR_END_X - BOARD_HOLE_FROM_END
@@ -323,15 +373,16 @@ BEAR_POST_X = BOARD_FAR_END_X + BOARD_HOLE_FROM_END
 # --- Cell insertion shaft ---------------------------------------------------
 # Straight rectangular prism, from the widest point of the cradle bore up
 # through the top of the base. The cell drops in vertically along this.
+# Centred at CELL_OFFSET_X, not 0 -- see that constant's comment above.
 SHAFT_W = 2 * CELL_BORE_R      # = cell dia + clearance
 SHAFT_L = CELL_BORE_L
 SHAFT_Z0 = CELL_AXIS_Z         # cradle's widest point
 SHAFT_Z1 = BASE_DEPTH          # open at the top of the base
 
 # SMA bulkhead sits in the -X end wall, above the cradle and below the
-# parting line, and stops short of the cell's end.
+# parting line, and stops short of the cell's (now offset) near end.
 SMA_Z = (CELL_AXIS_Z + PARTING_Z) / 2
-SMA_CLEAR_DEPTH = (INNER_L / 2) - (SHAFT_L / 2)
+SMA_CLEAR_DEPTH = (INNER_L / 2) - CELL_NEAR_HALF_LEN
 
 
 def _rounded_box(length, width, height, z0, fillet):
@@ -347,10 +398,11 @@ def _rounded_box(length, width, height, z0, fillet):
 
 
 def cell_bore():
-    """Cylindrical pocket for the cell, axis along X at the cradle height."""
+    """Cylindrical pocket for the cell, axis along X at the cradle height,
+    centred at CELL_OFFSET_X rather than the case's X=0."""
     return (
         cq.Workplane("YZ")
-        .workplane(offset=-CELL_BORE_L / 2)
+        .workplane(offset=CELL_OFFSET_X - CELL_BORE_L / 2)
         .center(0, CELL_AXIS_Z)
         .circle(CELL_BORE_R)
         .extrude(CELL_BORE_L)
@@ -362,6 +414,7 @@ def insertion_shaft():
     return (
         cq.Workplane("XY")
         .workplane(offset=SHAFT_Z0)
+        .center(CELL_OFFSET_X, 0)
         .box(SHAFT_L, SHAFT_W, SHAFT_Z1 - SHAFT_Z0, centered=(True, True, False))
     )
 
@@ -676,10 +729,10 @@ def build_plate():
 # ---------------------------------------------------------------------------
 
 def build_cell():
-    """26650 cell, lying along X, concentric with the cradle bore."""
+    """26650 cell, lying along X, concentric with the (offset) cradle bore."""
     return (
         cq.Workplane("YZ")
-        .workplane(offset=-CELL_L / 2)
+        .workplane(offset=CELL_OFFSET_X - CELL_L / 2)
         .center(0, CELL_AXIS_Z)
         .circle(CELL_D / 2)
         .extrude(CELL_L)
