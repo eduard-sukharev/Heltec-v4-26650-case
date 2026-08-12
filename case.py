@@ -94,8 +94,25 @@ CELL_BORE_L = CELL_L + CELL_END_CLEARANCE
 # --- Wall / shell -----------------------------------------------------------
 WALL = 2.2                 # outer shell wall thickness
 FLOOR = 2.0                # base floor thickness under the cradle
-LID_RECESS = 5.0           # depth of the split-line tongue/skirt
-TONGUE_FRAC = 0.6          # fraction of WALL removed to form the tongue
+# Half-lap mating. The base is a plain tub -- full-thickness wall right up
+# to its rim, no lip at all. The plate's flange lands on that rim, and a plug
+# hanging below the flange drops into the cavity to locate it:
+#
+#     ————————      plate flange, full outer footprint
+#     ——____——      plug, inset to fit inside the base cavity
+#
+#     ||    ||      base wall, plain and full thickness
+#
+# The previous tongue/skirt split the 2.2mm wall lengthwise into a 0.88mm
+# tongue and a 1.17mm skirt, each 5mm tall -- roughly two extrusion widths
+# at a 5.7:1 aspect ratio, which is fragile to print and easy to snap.
+# The plug is a free-standing wall instead, so it can be a sane thickness.
+PLUG_DEPTH = 3.0           # how far the plug drops into the base cavity
+PLUG_WALL = 1.6            # plug wall thickness
+# The plug is inset from the plate's outer face, so it cannot hang off the
+# plate's own 2.2mm wall -- it would float free. A short internal ledge just
+# below the board carries it, after which the plate reverts to a thin wall.
+PLUG_LEDGE = 1.5           # height of that ledge above the parting line
 FIT_CLEARANCE = 0.15       # slack between base tongue and plate skirt
 CELL_TO_BOARD_GAP = 3.5    # cell top -> board underside (also clears screw heads)
 PARTING_ABOVE_CELL = 1.0   # parting line sits this far above the cell bore
@@ -148,7 +165,6 @@ M2_SHAFT_D = 2.2           # clearance hole for the screw shaft
 M2_HEAD_D = 4.0            # socket head diameter clearance
 M2_HEAD_H = 2.2            # socket head height clearance
 M2_PILOT_D = 1.6           # pilot hole in the boss that receives the screw
-SCREW_LEN = 8.0            # M2x8 SHCS for the case halves
 SCREW_INSET = 6.0          # boss centre inset from the outer corner
 
 # --- Derived Z levels (from the outside of the base floor, Z=0) -------------
@@ -162,15 +178,23 @@ OLED_TOP_Z = BOARD_TOP_Z + OLED_MODULE_THICK
 USB_TOP_Z = BOARD_TOP_Z + USB_H
 
 # Parting line sits just above the cell, so the base is a pure battery tub.
+# The base now ends flat at its rim -- nothing rises above the parting line.
 PARTING_Z = CELL_BORE_TOP_Z + PARTING_ABOVE_CELL
-BASE_DEPTH = PARTING_Z + LID_RECESS
+BASE_DEPTH = PARTING_Z
 
-# Plate is modelled with its own Z=0 at the parting line.
+# Plate is modelled with its own Z=0 at the parting line. It extends *below*
+# that, down to -PLUG_DEPTH, for the plug that drops into the base cavity.
 BOARD_UNDER_LOCAL = BOARD_UNDER_Z - PARTING_Z
 BOARD_TOP_LOCAL = BOARD_TOP_Z - PARTING_Z
-PLATE_INNER_H = max(OLED_TOP_Z - PARTING_Z + OLED_TOP_GAP, LID_RECESS)
+PLATE_INNER_H = OLED_TOP_Z - PARTING_Z + OLED_TOP_GAP
 PLATE_DEPTH = PLATE_INNER_H + WALL
 TOTAL_HEIGHT = PARTING_Z + PLATE_DEPTH
+
+# Case screws pass through a post in the plate (which the head seats on top
+# of) and thread into the base's boss below, so they must be long enough to
+# cross the post and still bite. Engagement is what is left over.
+SCREW_LEN = 16.0           # M2x16 SHCS for the case halves
+SCREW_ENGAGE = SCREW_LEN - PLATE_INNER_H
 
 # --- Derived plan dimensions ------------------------------------------------
 # Width is set by the cell (which is wider than the board) plus side walls.
@@ -432,8 +456,12 @@ def _oled_window_cutter():
 
 
 def _usb_cutter():
-    """USB-C opening, in global coordinates. It straddles the parting line,
-    so it has to be cut from both halves."""
+    """USB-C opening, in global coordinates.
+
+    With the parting line just above the cell, this now falls entirely within
+    the plate, so cutting it from the base removes nothing. It is still cut
+    from both halves so the opening survives if the parting line is moved.
+    """
     return (
         cq.Workplane("YZ")
         .workplane(offset=OUTER_L / 2 + 2)
@@ -477,16 +505,8 @@ def build_base(break_runout=True):
         .extrude(WALL + 2)
     )
 
-    # Split-line tongue: remove the outer part of the wall over the top
-    # LID_RECESS so the plate's skirt can close over it.
-    base = base.cut(
-        _rounded_box(OUTER_L, OUTER_W, LID_RECESS, PARTING_Z, CORNER_FILLET).cut(
-            _rounded_box(OUTER_L - 2 * WALL * TONGUE_FRAC,
-                         OUTER_W - 2 * WALL * TONGUE_FRAC,
-                         LID_RECESS + 1, PARTING_Z,
-                         max(CORNER_FILLET - WALL * TONGUE_FRAC, 0.3))
-        )
-    )
+    # No tongue: the base ends flat at PARTING_Z with a full-thickness wall.
+    # The plate's plug drops into the cavity to locate the two halves.
 
     # Screw bosses, full height, with pilot holes drilled from the top.
     # These sit beyond the ends of the shaft (enforced by OUTER_L above).
@@ -500,7 +520,7 @@ def build_base(break_runout=True):
             .workplane(offset=BASE_DEPTH)
             .center(x, y)
             .circle(M2_PILOT_D / 2)
-            .extrude(-min(SCREW_LEN, BASE_DEPTH - 1.0))
+            .extrude(-min(SCREW_ENGAGE + 1.5, BASE_DEPTH - 1.0))
         )
 
     # Shave the bottom edges to the octagonal profile. The large flanks go on
@@ -527,18 +547,40 @@ def build_plate():
     """Modelled with Z=0 at the plate's underside, which lands on PARTING_Z."""
     plate = _rounded_box(OUTER_L, OUTER_W, PLATE_DEPTH, 0, CORNER_FILLET)
 
-    # Interior: a skirt pocket over the bottom LID_RECESS that swallows the
-    # base's tongue, plus the main cavity above it.
-    plate = plate.cut(
-        _rounded_box(OUTER_L - 2 * WALL * TONGUE_FRAC + 2 * FIT_CLEARANCE,
-                     OUTER_W - 2 * WALL * TONGUE_FRAC + 2 * FIT_CLEARANCE,
-                     LID_RECESS, 0,
-                     max(CORNER_FILLET - WALL * TONGUE_FRAC, 0.3))
+    # Plug: a solid block hanging below the flange, sized to drop into the
+    # base cavity. Hollowed out together with the plate below, so it ends up
+    # a PLUG_WALL-thick wall continuous with the plate's inner surface.
+    plug_outer_l = INNER_L - 2 * FIT_CLEARANCE
+    plug_outer_w = INNER_W - 2 * FIT_CLEARANCE
+    plate = plate.union(
+        _rounded_box(plug_outer_l, plug_outer_w, PLUG_DEPTH, -PLUG_DEPTH,
+                     max(CORNER_FILLET - WALL - FIT_CLEARANCE, 0.4))
     )
+
+    # Hollow the plug and the ledge above it in one cut, so the plug's inner
+    # face and the ledge's inner face are the same surface -- that ledge is
+    # what actually holds the plug on, since the plug is inset well clear of
+    # the plate's own wall.
     plate = plate.cut(
-        _rounded_box(INNER_L, INNER_W, PLATE_INNER_H, 0,
+        _rounded_box(plug_outer_l - 2 * PLUG_WALL, plug_outer_w - 2 * PLUG_WALL,
+                     PLUG_DEPTH + PLUG_LEDGE + 1, -PLUG_DEPTH - 1, 0.4)
+    )
+
+    # Main cavity above the ledge, back to a thin WALL-thick outer wall.
+    plate = plate.cut(
+        _rounded_box(INNER_L, INNER_W, PLATE_INNER_H - PLUG_LEDGE, PLUG_LEDGE,
                      max(CORNER_FILLET - WALL, 0.5))
     )
+
+    # Notch the plug around the base's screw bosses, which rise to the rim.
+    for (x, y) in screw_positions:
+        plate = plate.cut(
+            cq.Workplane("XY")
+            .workplane(offset=-PLUG_DEPTH - 1)
+            .center(x, y)
+            .circle(M2_BOSS_D / 2 + FIT_CLEARANCE)
+            .extrude(PLUG_DEPTH + 1)
+        )
 
     # Break the top outer edge. Done here, while the top face is still a
     # plain rectangle, so the edge selection cannot pick up the window or
@@ -575,6 +617,18 @@ def build_plate():
             .center(BEAR_POST_X, y)
             .circle(BEAR_POST_D / 2)
             .extrude(post_h)
+        )
+
+    # Case screw posts: rise from the flange underside to the plate ceiling,
+    # in line with the base's bosses. The counterbore goes clean through the
+    # top wall, so it is the *top of these posts* the screw head bears on --
+    # without them the head would have nothing to seat against at all.
+    for (x, y) in screw_positions:
+        plate = plate.union(
+            cq.Workplane("XY")
+            .center(x, y)
+            .circle(M2_BOSS_D / 2)
+            .extrude(PLATE_INNER_H)
         )
 
     # OLED window through the top face, then bevel its outer edge. Using the

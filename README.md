@@ -34,7 +34,7 @@ Outer size **86.5 × 35.5 × 40.9 mm**.
 ## Design
 
 The enclosure splits along a horizontal parting line **just above the cell**,
-closed with **four M2 socket-head cap screws** (M2×8) threaded into printed
+closed with **four M2 socket-head cap screws** (M2×16) threaded into printed
 bosses. The 26650 cell lies **along the case's long axis, centred directly
 underneath the board**.
 
@@ -50,8 +50,8 @@ The two halves divide the job cleanly:
   - A panel-mount **SMA bulkhead hole** (8.4 mm) centred in the −X end
     wall, between the cradle top and the parting line.
   - Four screw bosses, placed *beyond the ends of the shaft*.
-  - A **tongue** around the top perimeter that the plate's skirt closes
-    over, with 0.15 mm fit clearance.
+  - **No lip at all** — the wall runs full thickness straight up to a flat
+    rim (see "Half-lap interface" below).
   - A large **chamfer on the two long bottom edges**, plus a small break on
     the short ends and on the junctions between them (see below).
 
@@ -64,13 +64,16 @@ The two halves divide the job cleanly:
     edge — placed outboard of the OLED module (±9.28 mm) and inboard of
     the board edge (±12.75 mm), so they land in the narrow clear strip
     between the two.
-  - Four M2 clearance holes with socket-head counterbores.
-  - A skirt that closes over the base's tongue.
+  - Four M2 clearance holes with socket-head counterbores, each over a
+    **post** the screw head bears on.
+  - A **plug** hanging below the flange that drops into the base cavity.
   - A **1.5 mm chamfer around the top outer edge**, and a matching **1 mm
     bevel on the face side of the display cutout** (see below).
 
-The **USB-C opening straddles the parting line**, so it is cut from both
-halves from a single shared cutter.
+The **USB-C opening** falls entirely within the plate now that the parting
+line sits just above the cell, so cutting it from the base removes nothing.
+It is still cut from both halves from one shared cutter, so the opening
+survives if the parting line is ever moved.
 
 ### The octagonal bottom profile
 
@@ -121,14 +124,71 @@ prism estimate would suggest.
 
 Both chamfers eat the lower corners of the screw bosses — at Z = 0 the
 bosses are gone entirely, emerging from the chamfered corner as they rise
-and becoming full by Z ≈ 7.5 mm. That is harmless, since the screws only
-engage the top 8 mm, but `verify.py` checks the material ring around every
+and becoming full by Z ≈ 7.5 mm. That is harmless, since the boss pilot hole only
+spans Z 21.2–30.1 mm, but `verify.py` checks the material ring around every
 pilot hole anyway.
 
 **Printability** is the reason the slope is exactly 45°. `CHAMFER_ASPECT`
 is rise/run, and at 1.0 the flank is a 45° overhang off the bed — the usual
 unsupported limit. Set it above 1.0 for a steeper, safer wall that saves
 less. `verify.py` fails the build if the overhang ever exceeds 45°.
+
+### Half-lap interface
+
+The two halves meet as a plain half-lap: the base is a flat-rimmed tub with
+no lip whatsoever, and the plate carries a plug that drops inside it.
+
+```
+————————      plate flange, full outer footprint
+——____——      plug, inset to fit the base cavity
+
+||    ||      base wall, plain and full thickness
+```
+
+This replaced a tongue-and-skirt joint that split the 2.2 mm wall
+lengthwise, and it was as bad to print as it sounds:
+
+| | Thickness | Height | Aspect | Widths @ 0.4 mm |
+|---|---|---|---|---|
+| Old base tongue | 0.88 mm | 5.0 mm | 5.7:1 | 2.2 |
+| Old plate skirt | 1.17 mm | 5.0 mm | 4.3:1 | 2.9 |
+| **New plug** | **1.60 mm** | **3.0 mm** | **1.9:1** | **4.0** |
+
+The base's wall is now full `WALL` thickness right to the rim, and the plug
+is a free-standing wall that can be sized independently of it. Fit is
+`FIT_CLEARANCE` (0.15 mm) per side.
+
+One wrinkle worth knowing if you change these numbers: the plug is inset
+well clear of the plate's own 2.2 mm wall, so it cannot hang off it — a
+first attempt left the plug as a **second, disconnected solid**. It is
+carried instead by a short internal ledge (`PLUG_LEDGE`, 1.5 mm) just below
+the board, where the plug's inner face and the ledge's inner face are cut as
+one surface. Above the ledge the plate reverts to a thin wall. The plug is
+also notched around the base's four screw bosses, which rise to the rim.
+
+### The screws actually clamp something now
+
+The case screws pass through a post in the plate and thread into the boss
+below, so the stack is:
+
+```
+head seats on the post top ─┐
+   counterbore (2.2 mm, the full top wall)
+   plate post  8.60 mm   ────┤ M2x16
+   ── parting line ──
+   base boss   7.40 mm engagement
+```
+
+The counterbore is exactly as deep as the plate's top wall, so **the head
+bears on the top of the plate's post, not on the wall**. Without that post
+there is nothing under the head at all — which is precisely what the
+earlier revision shipped: `verify.py` measured **0.00 mm³** of material
+under every screw head, and the screws would have pulled straight through
+on first tightening. There is now a per-screw seat check, confirmed to fail
+if the posts are removed.
+
+The posts also set the screw length: crossing an 8.6 mm post and still
+biting needs **M2×16**, not the M2×8 quoted earlier.
 
 ### Face plate chamfers
 
@@ -235,6 +295,11 @@ body, then checks:
   wall (so the bevel is never an overhang), the aperture leaves a straight
   land and clears the bearing posts, and the face chamfer leaves the
   counterbores on the flat without breaching the plate ceiling.
+- **Half-lap interface and screw stack** — the base has no lip above the
+  parting line, the plug is printable (thickness and aspect ratio) and a
+  slip fit, it clears the SMA body, its ledge stays below the board, every
+  screw head has material to seat on, and the screw is long enough to cross
+  the plate post and still bite into the boss.
 - **Design clearances** — cell slack, cell-to-board gap, screw-head
   clearance over the cell, bosses clearing the shaft, SMA body clearing the
   cell end, SMA hole landing in solid wall, bearing posts threading the gap
@@ -255,6 +320,11 @@ All checks currently pass. Key measured clearances:
 | Bearing post inner edge vs. OLED module | 9.50 vs 9.28 mm |
 | Bearing post outer edge vs. board edge | 12.50 vs 12.75 mm |
 | Headroom above OLED module | 0.50 mm |
+| Plug wall / depth | 1.60 mm × 3.00 mm (1.9:1) |
+| Plug fit clearance | 0.15 mm per side |
+| Plug bottom vs SMA body top | 27.10 vs 26.08 mm |
+| Material under each screw head | 2.63 mm³ |
+| Case screw engagement in boss | 7.40 mm |
 | Chamfer wall over the cell bore | 3.39 mm (min 2.20) |
 | Chamfer overhang | 45.0° (limit 45°) |
 | Flat the case stands on | 83.50 × 14.00 mm |
@@ -290,6 +360,7 @@ thickness, component heights, and connector positions.
 | `CHAMFER_ASPECT`, `MIN_BOTTOM_W` | Bottom chamfer: slope and standing flat |
 | `END_CHAMFER`, `PROFILE_EDGE_CHAMFER` | Small breaks on the short ends and the flank runouts |
 | `FACE_CHAMFER`, `WINDOW_CHAMFER` | Face plate edge break and display-cutout bevel |
+| `PLUG_DEPTH`, `PLUG_WALL`, `PLUG_LEDGE`, `FIT_CLEARANCE` | Half-lap plug geometry and fit |
 
 `OLED_ACTIVE_H` is *derived* from the dimensioned active width assuming a
 128×64 panel; if your display differs, set it directly.
@@ -337,6 +408,8 @@ Writes to `output/`:
 - M2 pilot holes are sized (1.6 mm) for self-tapping M2 screws into
   PLA/PETG; swap in heat-set inserts (and re-check `M2_PILOT_D` /
   `M2_BOSS_D`) for reusable fastening.
+- The case screws are **M2×16** — long enough to cross the plate's post and
+  bite 7.4 mm into the base boss. The board screws are still M2×6.
 - The SMA hole assumes a jam-nut panel-mount bulkhead; add a wrench-flat
   recess (`SMA_NUT_AF`, currently unused) if yours needs anti-rotation.
 - **Li-ion safety**: this case has no vent path and no provision for a

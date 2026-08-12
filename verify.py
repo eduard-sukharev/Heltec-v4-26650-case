@@ -51,7 +51,8 @@ def check(name, ok, detail):
 
 print("Building solids...")
 base = case.build_base()
-plate = case.build_plate().translate((0, 0, case.PARTING_Z))
+plate_local = case.build_plate()          # plate frame: Z=0 at the parting line
+plate = plate_local.translate((0, 0, case.PARTING_Z))
 cell = case.build_cell()
 board = case.build_board()
 screws = case.build_board_screws()
@@ -446,6 +447,63 @@ check("face chamfer does not breach the plate ceiling",
       case.OUTER_W / 2 - case.FACE_CHAMFER >= case.INNER_W / 2,
       f"chamfer reaches in to {case.OUTER_W / 2 - case.FACE_CHAMFER:.2f}, "
       f"cavity wall at {case.INNER_W / 2:.2f} mm")
+
+print("Checking the half-lap interface and the screw stack...")
+
+# The base must end flat -- no lip rising above the parting line at all.
+_base_top = bbox(base).zmax
+check("base has no lip above the parting line",
+      abs(_base_top - case.PARTING_Z) <= CLEAR_TOL,
+      f"base tops out at {_base_top:.2f}, parting line {case.PARTING_Z:.2f} mm")
+
+# The plug replaces a tongue that was thinner than two extrusion widths.
+_aspect = case.PLUG_DEPTH / case.PLUG_WALL
+check("plug wall is printable",
+      case.PLUG_WALL >= 1.2 and _aspect <= 3.0,
+      f"{case.PLUG_WALL:.2f} mm thick x {case.PLUG_DEPTH:.2f} tall "
+      f"({_aspect:.1f}:1, {case.PLUG_WALL / 0.4:.1f} extrusion widths)")
+
+check("plug is a slip fit in the base cavity",
+      0.05 <= case.FIT_CLEARANCE <= 0.4,
+      f"{case.FIT_CLEARANCE:.2f} mm per side")
+
+# The plug hangs below the parting line -- it must not foul the SMA body
+_plug_bottom = case.PARTING_Z - case.PLUG_DEPTH
+_sma_top = case.SMA_Z + case.SMA_BODY_D / 2
+check("plug clears the SMA connector body",
+      _plug_bottom >= _sma_top,
+      f"plug bottom {_plug_bottom:.2f} vs SMA body top {_sma_top:.2f} mm")
+
+# The ledge that carries the plug has to sit below the board
+check("plug ledge stays below the board",
+      case.PLUG_LEDGE <= case.BOARD_UNDER_LOCAL,
+      f"ledge {case.PLUG_LEDGE:.2f} vs board underside "
+      f"{case.BOARD_UNDER_LOCAL:.2f} mm above the parting line")
+
+# THE regression this suite previously missed: the counterbore is exactly as
+# deep as the plate's top wall, so without a post beneath it the screw head
+# has nothing at all to bear on and would pull straight through.
+for (x, y) in case.screw_positions:
+    seat = (
+        cq.Workplane("XY")
+        .workplane(offset=case.PLATE_DEPTH - case.M2_HEAD_H - 0.3)
+        .center(x, y)
+        .circle(case.M2_HEAD_D / 2)
+        .extrude(0.3)
+    )
+    v = intersect_volume(plate_local, seat)
+    check(f"screw head has a seat at ({x:.1f},{y:.1f})", v > 0.5,
+          f"{v:.2f} mm^3 of post under the head")
+
+# The screw must cross the plate's post and still bite into the base's boss
+check("case screw reaches the base boss",
+      case.SCREW_ENGAGE >= 4.0,
+      f"M2x{case.SCREW_LEN:.0f} through a {case.PLATE_INNER_H:.2f} mm post "
+      f"-> {case.SCREW_ENGAGE:.2f} mm engagement")
+check("boss pilot hole is deep enough for that engagement",
+      min(case.SCREW_ENGAGE + 1.5, case.BASE_DEPTH - 1.0) >= case.SCREW_ENGAGE,
+      f"pilot {min(case.SCREW_ENGAGE + 1.5, case.BASE_DEPTH - 1.0):.2f} mm "
+      f"vs engagement {case.SCREW_ENGAGE:.2f} mm")
 
 win_lo = case.OLED_CENTER_X - case.OLED_W / 2
 win_hi = case.OLED_CENTER_X + case.OLED_W / 2
