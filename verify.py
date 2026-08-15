@@ -479,6 +479,72 @@ check("USB-C connector sits close to the case's USB cutout",
       _usb_wall_gap < 10.0,
       f"{_usb_wall_gap:.2f} mm gap to the inner wall (was 17.65mm unshifted)")
 
+print("Checking the USB-C plug recess...")
+# The headline check for the recess, and the reason it exists: a cable's
+# overmoulded body, pushed in until its nose is USB_PLUG_NOSE_GAP off the
+# connector's face, must not touch the plate anywhere. Measured against the
+# built solid, not against the constants that shaped the cutter.
+_plug_env = case.usb_plug_envelope()
+_plug_foul = intersect_volume(plate, _plug_env)
+check("USB-C plug body reaches the connector",
+      _plug_foul <= SLIVER_TOL,
+      f"seated plug body fouls {_plug_foul:.3f} mm^3 of the plate")
+
+# Without the recess the plug's body grounds out on the outer face, and only
+# what is left of the shell after crossing the wall+gap gets into the
+# receptacle -- state both numbers so a regression reads as a number, not
+# just a boolean.
+_bare_engagement = case.USB_PLUG_SHELL_L - (case.OUTER_L / 2 - _usb_face_x)
+check("plug engagement is a latching depth, not a graze",
+      case.USB_PLUG_ENGAGEMENT >= 0.75 * case.USB_PLUG_SHELL_L,
+      f"{case.USB_PLUG_ENGAGEMENT:.2f} mm of {case.USB_PLUG_SHELL_L:.2f} mm "
+      f"shell (a plain window through the face would give "
+      f"{_bare_engagement:.2f} mm)")
+
+# ... and the recess must not have paid for that by opening the cavity: the
+# collar's two side walls and its floor are probed directly, over the whole
+# span where the well is inboard of the wall's own inner face.
+_r_x0 = case.USB_RECESS_BACK_X + 0.05
+_r_x1 = case.INNER_L / 2
+_r_hw = case.USB_RECESS_HALF_W
+_r_w = case.USB_RECESS_WALL
+_r_floor = case.USB_RECESS_FLOOR_Z
+for _name, _cy, _wy, _z0, _z1 in (
+    ("+Y side wall", _r_hw + _r_w / 2, _r_w - 0.1, _r_floor,
+     case.PARTING_Z + case.PLATE_INNER_H),
+    ("-Y side wall", -(_r_hw + _r_w / 2), _r_w - 0.1, _r_floor,
+     case.PARTING_Z + case.PLATE_INNER_H),
+    ("floor", 0.0, 2 * _r_hw - 0.1, _r_floor - _r_w + 0.05, _r_floor - 0.05),
+):
+    _probe = (
+        cq.Workplane("XY")
+        .workplane(offset=_z0)
+        .center((_r_x0 + _r_x1) / 2, _cy)
+        .box(_r_x1 - _r_x0, _wy, _z1 - _z0, centered=(True, True, False))
+    )
+    _got = intersect_volume(plate, _probe)
+    check(f"plug recess is closed off by its {_name}",
+          abs(_got - volume(_probe)) <= CLEAR_TOL * 10,
+          f"{_got:.2f} of {volume(_probe):.2f} mm^3 solid")
+
+# The well is cut between the two corner screws, and its flared mouth is its
+# widest point -- that is what must clear the posts, not the well proper.
+_r_mouth_hw = _r_hw + case.USB_RECESS_FLARE
+_post_inner_y = abs(case.screw_positions[0][1]) - case.M2_BOSS_D / 2
+check("plug recess stays between the corner screw posts",
+      _r_mouth_hw + _r_w <= _post_inner_y - 0.5,
+      f"collar reaches Y={_r_mouth_hw + _r_w:.2f}, posts start at "
+      f"{_post_inner_y:.2f} mm")
+
+# The recess must stay clear of the sealing half-lap: it lives in the top
+# half of the plate, the ledge/plug in the bottom, and the two must not meet
+# or the case gains a leak path straight into the cavity.
+_r_floor_underside = _r_floor - _r_w - case.PARTING_Z
+check("plug recess clears the half-lap ledge",
+      _r_floor_underside > case.PLUG_LEDGE,
+      f"collar bottoms out {_r_floor_underside:.2f} mm above the parting "
+      f"line, ledge tops out at {case.PLUG_LEDGE:.2f} mm")
+
 print("Checking the button bridge...")
 # Post/arm max Y-reach must stay clear of the registration shoulder. The
 # post (BUTTON_POST_D) is the widest feature at the button end now that
@@ -871,6 +937,9 @@ print(f"  end chamfer         : run {case.END_CHAMFER_RUN:.2f} / rise "
       f"{case.END_CHAMFER_RISE:.2f} mm @ {case.END_CHAMFER_OVERHANG_DEG:.1f} deg")
 print(f"  stands on           : {case.BOTTOM_L:.2f} x {case.BOTTOM_W:.2f} mm")
 print(f"  board underside Z   : {case.BOARD_UNDER_Z:.2f} mm")
+print(f"  USB-C plug recess   : {case.USB_PLUG_W:.1f} wide x "
+      f"{case.OUTER_L / 2 - case.USB_RECESS_BACK_X:.2f} deep, floor at Z "
+      f"{case.USB_RECESS_FLOOR_Z:.2f}, open-topped")
 print(f"  base volume         : {volume(base) / 1000.0:.2f} cm^3")
 print(f"  plate volume        : {volume(plate) / 1000.0:.2f} cm^3")
 

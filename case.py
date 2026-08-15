@@ -716,6 +716,74 @@ button_actuators = [
     (BUTTON_CENTER_X, -BUTTON_Y, BUTTON_PRG_OFFSET),
 ]
 
+# --- USB-C plug recess (see _usb_recess_collar()/_usb_recess_cutter()) ------
+# The plain rectangular window (_usb_cutter()) is sized to the *connector*,
+# not to the *cable*, and that is not enough to plug anything in. Two things
+# stand between a cable and the receptacle: WALL (2.2mm) of end wall, and
+# whatever gap the board shift couldn't close (BOARD_CENTER_X is capped by
+# the corner boss, not by BOARD_USB_WALL_CLEARANCE -- see there), which is
+# another ~2.1mm. A USB-C plug's shell only protrudes ~6.5mm from its own
+# overmoulded body, and the body is far too big for the window, so the body
+# grounds out on the outer face with barely 2mm of shell inside the
+# receptacle -- it doesn't reach the latch, let alone the contacts.
+#
+# So the plate's +X end gets a recess -- a well sunk into the end face,
+# between the two corner screws, wide/tall enough to swallow the cable's
+# overmould and deep enough to carry it right up to the connector's face.
+# The well necessarily reaches PAST the cavity's inner wall (the connector
+# sits behind it), so it can't be a plain cut: everything inboard of
+# INNER_L/2 has to be built up first as a collar around the well, or the
+# well would simply open into the case interior. The collar is what gives
+# the recess its own side walls and its own floor, under the connector.
+#
+# Sizes are the *cable's* envelope, not the case's -- the well is derived
+# from them, so re-measuring a chunkier cable and re-running is the whole
+# adjustment.
+USB_PLUG_W = 12.4        # overmoulded plug body: width (Y) ...
+USB_PLUG_H = 6.5         # ... and height (Z). Sized to the largest bodies
+                          # the Type-C spec's own overmould envelope allows
+                          # (~12.35 x 6.5mm), so slimmer cables just have
+                          # room to spare rather than needing a reprint.
+USB_PLUG_SHELL_L = 6.5   # how far the metal shell stands proud of that
+                          # body -- i.e. how much X the well has to give
+                          # back before the plug can seat
+USB_PLUG_NOSE_GAP = 0.3  # well's inner end -> connector's own outer face.
+                          # Not zero: the board is lifted vertically into
+                          # the plate past this very face, and its X is set
+                          # by the rail shoulder's endstop, so the collar
+                          # must not be in the connector's way.
+USB_RECESS_WALL = 1.6    # collar wall thickness (same as PLUG_WALL)
+USB_RECESS_FLARE = 1.5   # 45 deg lead-in on the well's two SIDE walls at
+                          # the outer face -- a funnel for the plug, and it
+                          # keeps the mouth from reading as a raw slot. It
+                          # is confined to the wall itself (it ends well
+                          # outboard of INNER_L/2), so it never thins the
+                          # collar.
+
+USB_RECESS_BACK_X = BOARD_CONNECTOR_END_X + USB_OVERHANG + USB_PLUG_NOSE_GAP
+USB_RECESS_HALF_W = USB_PLUG_W / 2
+# Centred on the connector's own mid-height, not on anything of the case's:
+# a plug's body is centred on its shell, and the shell is centred in the
+# receptacle. That works out to the board's own underside plane, since
+# USB_PLUG_H/2 - USB_H/2 happens to be almost exactly BOARD_T.
+USB_RECESS_FLOOR_Z = (BOARD_TOP_Z + USB_H / 2) - USB_PLUG_H / 2
+USB_RECESS_FLOOR_LOCAL = USB_RECESS_FLOOR_Z - PARTING_Z
+# Shell engagement the well actually buys back: everything the plug has to
+# give up is the nose gap, since its body can now follow the shell all the
+# way in.
+USB_PLUG_ENGAGEMENT = USB_PLUG_SHELL_L - USB_PLUG_NOSE_GAP
+
+# The well is open at the TOP -- it breaks through the plate's top face
+# rather than being roofed over -- and that isn't a shortcut, it's forced.
+# The connector's own top face is flush with the ceiling (CEILING_CLEARANCE
+# == USB_H), which leaves WALL of top wall over it, and FACE_CHAMFER (1.5mm)
+# eats nearly all of that again at the outer face: a roof over a well this
+# tall would be a fraction of a millimetre thick right where the cable
+# pushes on it. An open top costs nothing structurally (the collar's walls
+# and floor are what seal the interior, and they are untouched), removes the
+# only unsupported span the feature would have had, and lets an oversized
+# cable stick up out of the well instead of not fitting at all.
+
 # GPS and battery/solar underside connector centres -- edge-referenced off
 # the (shifted) board ends, matching the caliper measurements. Hoisted to
 # module level (rather than staying local to build_board()) so build_plate()
@@ -1091,6 +1159,24 @@ def insertion_shaft():
     )
 
 
+def usb_plug_envelope():
+    """The volume a fully-seated USB-C cable plug needs, in global
+    coordinates: its overmoulded body from the connector's face (less the
+    nose gap) outward, past the case entirely.
+
+    Not part of the assembly -- it's the probe verify.py pushes at the plate
+    to prove the recess actually admits a cable, rather than trusting that
+    the constants that shaped the well were the ones the well got built to.
+    """
+    return (
+        cq.Workplane("XY")
+        .workplane(offset=USB_RECESS_FLOOR_Z)
+        .center((USB_RECESS_BACK_X + OUTER_L / 2 + 10) / 2, 0)
+        .box(OUTER_L / 2 + 10 - USB_RECESS_BACK_X, USB_PLUG_W, USB_PLUG_H,
+             centered=(True, True, False))
+    )
+
+
 def bottom_chamfer_profile():
     """Prism whose end-on (YZ) section is the base's chamfered outer profile.
     Intersecting the base with this shaves both long bottom edges at once,
@@ -1186,6 +1272,12 @@ def _usb_cutter():
     With the parting line just above the cell, this now falls entirely within
     the plate, so cutting it from the base removes nothing. It is still cut
     from both halves so the opening survives if the parting line is moved.
+
+    In the plate this cut is now fully contained inside the plug recess
+    (_usb_recess_cutter(), which is bigger in every direction and starts
+    further in), so it removes nothing there either. It is kept as the thing
+    that defines the *opening* independently of the recess -- move the
+    parting line down and the base needs it again.
     """
     return (
         cq.Workplane("YZ")
@@ -1193,6 +1285,80 @@ def _usb_cutter():
         .center(0, BOARD_TOP_Z + USB_H / 2)
         .rect(USB_W + 1.0, USB_H + 1.0)
         .extrude(-(WALL + 8))
+    )
+
+
+def _usb_recess_collar():
+    """The material that has to exist BEFORE the plug recess is cut, so the
+    recess ends up with side walls and a floor instead of a hole into the
+    cavity -- plate-local coordinates (Z=0 at the parting line).
+
+    A plain block, running from the well's inner end (USB_RECESS_BACK_X)
+    outboard into the end wall, and from USB_RECESS_WALL below the well's
+    floor up to the ceiling. Two things it deliberately does NOT do:
+
+      - it stops at the ceiling (PLATE_INNER_H) rather than at the plate's
+        top face. Above the ceiling the plate is already solid across its
+        whole footprint, so there is nothing to add there -- the recess just
+        carves its own channel through that top wall, and the material left
+        either side of it is that same wall.
+      - it is buried in the end wall rather than merely touching it: the
+        block runs a little past INNER_L/2 so the union has real overlap to
+        work with instead of two coincident faces.
+
+    It hangs into the cavity by only (INNER_L/2 - USB_RECESS_BACK_X), under
+    2mm, and the board's own +X edge is a further USB_DEPTH-ish inboard of
+    that, so nothing has to be moved to make room for it -- see verify.py's
+    pairwise collision checks.
+    """
+    x0 = USB_RECESS_BACK_X
+    x1 = INNER_L / 2 + USB_RECESS_WALL
+    z0 = USB_RECESS_FLOOR_LOCAL - USB_RECESS_WALL
+    return (
+        cq.Workplane("XY")
+        .workplane(offset=z0)
+        .center((x0 + x1) / 2, 0)
+        .rect(x1 - x0, USB_PLUG_W + 2 * USB_RECESS_WALL)
+        .extrude(PLATE_INNER_H - z0)
+    )
+
+
+def _usb_recess_cutter():
+    """The well itself -- plate-local coordinates.
+
+    One extruded plan-view polygon, from the well's floor straight up
+    through the plate's top face (see USB_RECESS_* on why it is open at the
+    top). The polygon is the shape drawn in plan: constant USB_PLUG_W across
+    the well proper, then flaring out at 45 deg over the last
+    USB_RECESS_FLARE of the end wall to a wider mouth.
+
+    Extruding one polygon, rather than cutting a box and chamfering the
+    result, keeps the mouth's lead-in exact and the boolean plain -- the
+    same reasoning as the OLED window's bevel, just solved on the cutter
+    because these edges are on the end face, which the top-face chamfer has
+    already been taken on by this point.
+    """
+    hw = USB_RECESS_HALF_W
+    mouth_hw = hw + USB_RECESS_FLARE
+    face_x = OUTER_L / 2
+    flare_x = face_x - USB_RECESS_FLARE
+    out_x = face_x + 1.0          # past the face, so the cut breaks through
+    pts = [
+        (USB_RECESS_BACK_X, hw),
+        (flare_x, hw),
+        (face_x, mouth_hw),
+        (out_x, mouth_hw),
+        (out_x, -mouth_hw),
+        (face_x, -mouth_hw),
+        (flare_x, -hw),
+        (USB_RECESS_BACK_X, -hw),
+    ]
+    return (
+        cq.Workplane("XY")
+        .workplane(offset=USB_RECESS_FLOOR_LOCAL)
+        .polyline(pts)
+        .close()
+        .extrude(PLATE_DEPTH - USB_RECESS_FLOOR_LOCAL + 1.0)
     )
 
 
@@ -1496,6 +1662,14 @@ def build_plate():
     # Same idea, for the SMA washer sitting flush against the -X wall.
     plate = plate.cut(_sma_ledge_notch())
 
+    # Build up the USB-C plug recess's collar before anything cuts the
+    # recess itself -- it is the block the well's side walls and floor are
+    # later left over from. Unioned here, after the cavity has been
+    # hollowed out (or the hollow would take it straight back out again)
+    # and before the top face is chamfered (it stops at the ceiling, so it
+    # can't reach that edge, but the recess it serves does -- see below).
+    plate = plate.union(_usb_recess_collar())
+
     # Break the top outer edge. Done here, while the top face is still a
     # plain rectangle, so the edge selection cannot pick up the window or
     # the screw counterbores cut later.
@@ -1702,6 +1876,12 @@ def build_plate():
         plate = plate.cut(
             cq.Workplane("XY").center(x, y).circle(BUTTON_HOLE_D / 2).extrude(PLATE_DEPTH)
         )
+
+    # The USB-C plug recess, cut last: it breaks through the top face, so it
+    # has to come after that face's own chamfer (which selects every edge on
+    # the top face, and would otherwise pick up the well's mouth as well --
+    # the same reason the OLED window is cut after it).
+    plate = plate.cut(_usb_recess_cutter())
 
     return plate.cut(_usb_cutter().translate((0, 0, -PARTING_Z)))
 
