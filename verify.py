@@ -59,6 +59,7 @@ cell = case.build_cell()
 board = case.build_board()
 sma = case.build_sma_connector()
 retainer = case.build_retainer()
+button_bridge = case.build_button_bridge()
 
 solids = {
     "base": base,
@@ -67,6 +68,7 @@ solids = {
     "board": board,
     "sma": sma,
     "retainer": retainer,
+    "button_bridge": button_bridge,
 }
 
 # The plate must come out as ONE connected solid. This is exactly the check
@@ -80,6 +82,12 @@ check("plate is a single connected solid",
 check("retainer is a single connected solid",
       len(retainer.val().Solids()) == 1,
       f"{len(retainer.val().Solids())} solid(s)")
+# The button bridge is unioned from five separate primitives (spine, two
+# arms, two posts, two caps) -- worth the same connectivity check for the
+# same reason as the plate/retainer above.
+check("button bridge is a single connected solid",
+      len(button_bridge.val().Solids()) == 1,
+      f"{len(button_bridge.val().Solids())} solid(s)")
 
 # The plate's preload dimples are DESIGNED to interfere with the board by
 # PRELOAD_BUMP_INTERFERENCE (elastically compressed as the retainer clamps
@@ -471,6 +479,58 @@ check("USB-C connector sits close to the case's USB cutout",
       _usb_wall_gap < 10.0,
       f"{_usb_wall_gap:.2f} mm gap to the inner wall (was 17.65mm unshifted)")
 
+print("Checking the button bridge...")
+# Post/arm max Y-reach must stay clear of the registration shoulder. The
+# post (BUTTON_POST_D) is the widest feature at the button end now that
+# there's no separate, wider cap.
+_button_post_reach = case.BUTTON_Y + case.BUTTON_POST_D / 2
+check("button post clears the registration shoulder",
+      _button_post_reach < case.RAIL_SHOULDER_INNER_Y,
+      f"post reaches Y={_button_post_reach:.2f} vs shoulder at "
+      f"{case.RAIL_SHOULDER_INNER_Y:.2f} mm")
+_button_arm_reach = case.BUTTON_Y + case.BUTTON_ARM_W / 2
+check("button arm clears the registration shoulder",
+      _button_arm_reach < case.RAIL_SHOULDER_INNER_Y,
+      f"arm reaches Y={_button_arm_reach:.2f} vs shoulder at "
+      f"{case.RAIL_SHOULDER_INNER_Y:.2f} mm")
+
+# The spine (plus half its own width) must stay BUTTON_BRIDGE_CLEARANCE
+# clear of the USB-C connector's own (board-centre-side) inner edge -- the
+# whole reason the bridge is C-routed instead of running straight between
+# the two buttons.
+_usb_inner_x = case.USB_CENTER_X - case.USB_DEPTH / 2
+_spine_gap = _usb_inner_x - (case.BUTTON_SPINE_X + case.BUTTON_ARM_W / 2)
+check("button bridge spine clears the USB-C connector",
+      _spine_gap >= case.BUTTON_BRIDGE_CLEARANCE - CLEAR_TOL,
+      f"{_spine_gap:.2f} mm clear of the connector's inner edge "
+      f"(want >= {case.BUTTON_BRIDGE_CLEARANCE:.2f})")
+
+# Direct geometric confirmation, not just the formula above: the bridge
+# (which includes both arms sweeping straight through the connector's own
+# X span at Y=+-BUTTON_Y) must still have zero real overlap with the board
+# -- which carries the USB-C mock -- proving the C-route actually clears it
+# in practice, not just on paper.
+_bridge_board_overlap = intersect_volume(button_bridge, board)
+check("button bridge clears the board (incl. the USB-C connector)",
+      _bridge_board_overlap <= SLIVER_TOL,
+      f"{_bridge_board_overlap:.3f} mm^3 overlap")
+
+# Each arm's foot should sit a small, bounded gap above the real button
+# mock -- present (not touching/preloading the switch) but not so far off
+# that the bridge never actually reaches it.
+_button_top_z = case.BOARD_TOP_Z + case.BUTTON_H
+_travel_gap = case.BUTTON_ARM_BOTTOM_Z - _button_top_z
+check("button bridge foot sits just above the real button (dead travel)",
+      0 < _travel_gap <= case.BUTTON_PLUNGER_TRAVEL + CLEAR_TOL,
+      f"{_travel_gap:.2f} mm gap (target {case.BUTTON_PLUNGER_TRAVEL:.2f} mm)")
+
+# Check the SHORTER post (RST, recessed by BUTTON_RST_OFFSET) since that's
+# the binding case -- if it's still positive, PRG's longer post trivially is.
+_shortest_post_h = case.BUTTON_POST_H + min(o for _, _, o in case.button_actuators)
+check("shortest button post is long enough to cross the ceiling wall",
+      _shortest_post_h > 0,
+      f"{_shortest_post_h:.2f} mm (RST recessed {-case.BUTTON_RST_OFFSET:.2f}mm)")
+
 print("Checking the bottom chamfer...")
 # Printability: the sloped face must not exceed a 45 deg overhang off the bed
 check("chamfer overhang is printable",
@@ -637,13 +697,18 @@ check("window bevel leaves a straight land",
       f"bevel {case.WINDOW_CHAMFER:.2f} of {top_wall:.2f} mm wall, "
       f"land {top_wall - case.WINDOW_CHAMFER:.2f} mm")
 
-# Measure the real opening at the outer face and at the ceiling
+# Measure the real opening at the outer face and at the ceiling. Padding
+# only needs to be generous enough to catch the bevel's growth
+# (2*WINDOW_CHAMFER per side) with margin -- a flat +20/+12 used to be safe
+# when nothing else was ever near the window, but it now reaches far enough
+# in +X to pick up the button actuator holes (BUTTON_CENTER_X ~ 30mm) as
+# stray open material, inflating this probe's own bounding box.
 def _window_opening(z, t=0.02):
     slab = (
         cq.Workplane("XY")
         .workplane(offset=z)
         .center(case.OLED_CENTER_X, case.OLED_CENTER_Y)
-        .box(case.OLED_WINDOW_W + 20, case.OLED_WINDOW_H + 12, t, centered=(True, True, False))
+        .box(case.OLED_WINDOW_W + 10, case.OLED_WINDOW_H + 10, t, centered=(True, True, False))
     )
     hole = slab.cut(case.build_plate())
     return hole.val().BoundingBox() if volume(hole) > 0 else None

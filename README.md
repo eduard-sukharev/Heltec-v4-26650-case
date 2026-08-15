@@ -6,10 +6,13 @@
 this is always the actual current model, not a stale illustration.*
 
 Parametric [CadQuery](https://cadquery.readthedocs.io/) model of a
-two-piece 3D-printable enclosure for:
+3D-printable enclosure (base + face plate, plus a retainer plank and a
+button bridge as small separately-printed parts) for:
 
 - A **Heltec V4** board (ESP32-S3 based Heltec WiFi LoRa 32 V4 form factor,
-  **GPS-less variant**)
+  **GPS-less variant**), including its two tactile buttons (PRG/boot and
+  RST), actuated through the plate via a separately-printed bridge (see
+  "The two buttons and their bridge" below)
 - An **external antenna** connected via an **IPEX-to-SMA pigtail**, with a
   panel-mount SMA bulkhead hole axially through the **plate's own -X end
   wall** (see "Why the SMA mount moved to the plate" below)
@@ -19,8 +22,9 @@ Outer size **80.1 × 35.7 × 42.3 mm**.
 
 ## Files
 
-- `case.py` — the model: base, plate and the printable retainer plank, plus
-  mock solids for the cell, board and SMA connector used for fit checks.
+- `case.py` — the model: base, plate, the printable retainer plank and the
+  printable button bridge, plus mock solids for the cell, board and SMA
+  connector used for fit checks.
 - `verify.py` — collision / fit / insertion-path checks (see below).
 - `render_preview.py` — renders `docs/preview.png`, the image at the top of
   this file.
@@ -765,6 +769,97 @@ actually closer to its wall — rather than assuming the bore is centred, so
 raising `CELL_OFFSET_X` again later (if some other component needs it)
 flows through automatically.
 
+### The two buttons and their bridge, printed separately
+
+The real board carries two SMD tactile buttons next to the USB-C connector
+— silkscreened `PRG` (boot) and `RST` (reset) — confirmed and measured off
+`reference/heltec_v4_top.JPG` and `reference/heltec_v4_side.JPG`: a
+**4.3 × 3.1mm** footprint, **2.5mm** tall, top-mounted like the OLED/USB-C/
+u.FL. Both sit at the same X, `BUTTON_EDGE_GAP_X` (4.8mm) in from the
+board's own +X (USB-C) edge, mirrored `BUTTON_Y` (8.15mm) off the
+centreline. `build_board()` carries them as mock geometry now, the same way
+it already carries the OLED/USB-C/u.FL/GPS/power connector mocks.
+
+Since the plate's ceiling used to be solid plastic directly over them,
+`build_plate()` now cuts a small plain actuator hole straight through it
+above each button.
+
+What actually presses the buttons is a separate printed part,
+`build_button_bridge()` — a **single** piece carrying both actuators
+instead of two loose ones: a round post through each ceiling hole, joined
+underneath the lid by a flat bracket that reaches down to the real
+buttons. Each post is a **constant diameter the whole way up** — no wider
+head and no counterbore. A first pass gave each post a wider, recessed cap
+(so it couldn't be pushed all the way through, and so it had a
+comfortably-sized pressable surface), but that step is an unsupported
+overhang under FDM printing no matter which way the part goes: printed
+cap-down, the bracket ends up cantilevered off a thin post with nothing
+underneath; printed post-down (the orientation that actually suits the
+bracket), the cap's own rim still overhangs the narrower post beneath it.
+A single diameter removes the overhang either way, and retention no longer
+needs a cap catching in a counterbore: the bracket itself, sitting below
+the ceiling and wider than the hole everywhere except right at the two
+holes, is what stops the post from being pushed straight through — the
+same role a rivet's far-side head plays, just on the inside. Each post
+also starts at the *same* Z as the bracket's own bottom face rather than
+its top, so the two overlap through the bracket's full thickness instead
+of only touching at one plane — a more robust union, and it means the
+post's round cross-section is present from the very first printed layer.
+
+Both posts are vertical and parallel, so the whole rigid part drops
+straight down as one motion during assembly — both posts reach the outer
+face at the same moment the bracket sweeps down into the open ceiling
+cavity. Simplest done before the board goes in, like the retainer plank,
+though nothing about the geometry requires that order.
+
+The bracket can't run straight between the two buttons, though: the USB-C
+connector sits flush against the ceiling with zero spare headroom
+(`CEILING_CLEARANCE == USB_H`, no added gap), and `BUTTON_CENTER_X` lands
+*inside* the connector's own X span — expected, the buttons sit right
+beside it on the real board — so a straight Y-running bridge at that X
+would cut straight through the connector's body. It has to be dodged
+in-plane instead, which is what `BUTTON_SPINE_X` is for: the bracket is a
+**C**, two arms running in X from each button out to a spine set back far
+enough (`BUTTON_BRIDGE_CLEARANCE`, 1mm) to clear the connector's inner
+edge. The arms themselves stay clear the whole way even though they cross
+the connector's X range, because they run at `Y = ±BUTTON_Y` (8.15mm) —
+well outside the connector's own Y half-span (`USB_W/2`, 4.5mm). Only the
+spine, which does cross Y=0, has to duck around it in X.
+
+The bracket's own thickness (`BUTTON_ARM_T`) is pinned by the same 0.8mm
+gap the post crosses (`CEILING_CLEARANCE − BUTTON_H`): the post is narrow
+enough to rise through the round ceiling hole on its own, but the arms are
+a wide footprint sweeping under the *solid* ceiling outside that hole, so
+`BUTTON_PLUNGER_TRAVEL + BUTTON_ARM_T` has to stay under that 0.8mm or the
+bracket would collide with the ceiling itself — caught directly by
+`verify.py`'s pairwise collision check the first time this was built at a
+naive 1mm thickness. `BUTTON_ARM_T` is 0.5mm as a result: thin, but it only
+ever transmits a light finger-press, not a structural load.
+
+`BUTTON_PLUNGER_TRAVEL` (0.2mm) is a deliberate dead-gap between the
+bracket's foot and the real button's top face — present so the bridge
+can't preload or permanently depress either switch, at the cost of that
+much travel before a press actually registers.
+
+The two posts aren't the same length, either. RST needs to stay reachable
+without being so exposed it gets bumped by accident, so it's recessed
+`BUTTON_RST_OFFSET` (0.5mm) below the plate's outer face; PRG is the one
+actually reached for everyday use (held together with RST for flashing),
+so it gets the opposite treatment and sits `BUTTON_PRG_OFFSET` (0.5mm)
+proud instead. Both are a per-button adjustment on top of the same shared
+`BUTTON_POST_H` baseline — the ceiling hole itself doesn't change, since
+it already runs the plate's full depth regardless of how long the post
+ends up. Each post's own pressable top edge also gets a `BUTTON_TOP_CHAMFER`
+(0.4mm) break, cut with `.chamfer()` after the post is built but before
+it's unioned into the rest of the bracket.
+
+`verify.py` checks the bridge is a single connected solid (the same
+multi-primitive-union concern the plate/retainer connectivity checks exist
+for), that it has zero real collision against every other part — including
+the board, which is what actually proves the C-route clears the USB-C
+connector rather than just trusting the formula — and that the post/arm
+reach stays clear of the registration shoulder.
+
 ## Verifying fit
 
 ```bash
@@ -919,7 +1014,10 @@ Writes to `output/`:
 - `heltec_v4_case_plate.stl` / `.step`
 - `heltec_v4_case_retainer.stl` / `.step` — the third printable part, screwed
   to the plate after the board (see "Board retention" above)
-- `heltec_v4_case_assembly.step` (all three printed parts plus the cell,
+- `heltec_v4_case_button_bridge.stl` / `.step` — the fourth printable part,
+  dropped into the plate's two button holes (see "The two buttons and
+  their bridge" above)
+- `heltec_v4_case_assembly.step` (all four printed parts plus the cell,
   board and SMA connector mocks, for visual review only — not for printing)
 
 ## Printing notes
@@ -952,6 +1050,11 @@ Writes to `output/`:
   (see "Adding the SMA connector" above) — no separate jam nut needed on
   the panel side, and `SMA_NUT_AF` is now actually used, for the nut mock's
   hex cross-section.
+- The button bridge prints with its flat bracket down on the bed and both
+  posts rising straight up — every post is a constant diameter the whole
+  way, so there's no overhang anywhere and no support needed. It's a loose
+  drop-fit into the plate's two button holes (`BUTTON_HOLE_CLEARANCE`,
+  0.3mm diametral), not screwed down.
 - **Li-ion safety**: this case has no vent path and no provision for a
   protection circuit or BMS. Use a protected cell, and add a vent hole if
   you intend to leave it charging unattended.

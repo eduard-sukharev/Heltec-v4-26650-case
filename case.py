@@ -96,6 +96,17 @@ UFL_SIZE = 3.0
 UFL_H = 1.6              # (est) height above the PCB
 UFL_FROM_END = 4.0       # centre distance from the -X board edge
 
+# Two SMD tactile buttons (silkscreened PRG/boot and RST), alongside the
+# USB-C connector, top-mounted like the OLED/USB-C/u.FL. Size measured off
+# reference/heltec_v4_top.JPG (pixel-calibrated against its own hand-drawn
+# calipers) and reference/heltec_v4_side.JPG (component height); position
+# measured directly off the board.
+BUTTON_W = 4.3            # X footprint (along board length)
+BUTTON_D = 3.1            # Y footprint (across board width)
+BUTTON_H = 2.5            # height above the PCB top face
+BUTTON_EDGE_GAP_X = 4.8   # board's +X (USB-C) edge -> button centre
+BUTTON_Y = 8.15           # off centreline -- both buttons share this, mirrored
+
 # IPEX-to-SMA pigtail: bulkhead SMA jack, from its own datasheet (measured,
 # not estimated). Front to back: an externally-threaded barrel (what passes
 # through the panel and receives the mating connector's nut), then a nut
@@ -622,6 +633,88 @@ BOARD_CONNECTOR_END_X = BOARD_L / 2 + BOARD_CENTER_X
 BOARD_FAR_END_X = -BOARD_L / 2 + BOARD_CENTER_X
 OLED_CENTER_X += BOARD_CENTER_X
 USB_CENTER_X = BOARD_CONNECTOR_END_X + USB_OVERHANG - USB_DEPTH / 2
+
+# The two buttons share BUTTON_EDGE_GAP_X, so they share one X too --
+# BUTTON_CENTER_X lands inside the USB-C connector's own X span
+# (USB_CENTER_X +- USB_DEPTH/2), which is expected: the buttons sit right
+# beside the connector on the real board. Only a Y-running bridge straight
+# between them would actually cross the connector -- see the button bridge
+# section below.
+BUTTON_CENTER_X = BOARD_CONNECTOR_END_X - BUTTON_EDGE_GAP_X
+button_positions = [(BUTTON_CENTER_X, BUTTON_Y), (BUTTON_CENTER_X, -BUTTON_Y)]
+
+# --- Button actuator bridge (see build_button_bridge()) ---------------------
+# A separate printed part carrying both button actuators, joined under the
+# lid instead of two loose pieces. Round posts pass through round ceiling
+# holes (self-aligning, forgiving of small position error) down to a flat
+# bracket that reaches the actual buttons. USB_CENTER_X/USB_DEPTH place the
+# connector's own inner (board-centre-side) edge; the bridge's spine has to
+# stay clear of it since the connector sits flush against the ceiling with
+# zero spare headroom there (CEILING_CLEARANCE == USB_H) -- it can only be
+# dodged in-plane, not stepped over.
+#
+# Each post is a plain, constant-diameter cylinder -- no wider head/cap and
+# no counterbore. A stepped post (narrow shaft + wider head recessed into a
+# counterbore, the first version of this) prints with the head's overhang
+# unsupported no matter which way up the part goes: cap-down has the arm/
+# spine cantilevered off a thin post with nothing under them, post-down (the
+# orientation that actually works for the arm) still leaves the head's own
+# rim overhanging the narrower shaft above it. A single diameter the whole
+# way up removes the overhang either way. Retention no longer needs a cap
+# catching in a counterbore either: the arm/spine sitting below the solid
+# ceiling (wider than the hole, everywhere except right at the two holes
+# themselves) is what stops the bridge from being pushed straight through --
+# the same role a rivet's far-side head plays, just on the inside instead of
+# a recessed head on the outside.
+BUTTON_POST_D = 3.0             # constant diameter, arm to outer face
+BUTTON_HOLE_CLEARANCE = 0.3     # diametral, post in its ceiling hole
+BUTTON_HOLE_D = BUTTON_POST_D + BUTTON_HOLE_CLEARANCE
+BUTTON_PLUNGER_TRAVEL = 0.2     # dead-gap left between the bridge's foot and
+                                  # the real button's top face, so the bridge
+                                  # can't preload/permanently depress either
+                                  # switch
+BUTTON_ARM_T = 0.5              # bridge thickness (Z) -- capped by the same
+                                  # 0.8mm gap the post crosses (CEILING_CLEARANCE
+                                  # minus BUTTON_H): the arm/spine run the
+                                  # whole C-shape at button-top height, so
+                                  # BUTTON_PLUNGER_TRAVEL + BUTTON_ARM_T has to
+                                  # stay under that 0.8mm or the arm's own
+                                  # footprint (wide, unlike the narrow post)
+                                  # would collide with the solid ceiling
+                                  # outside the round through-hole
+BUTTON_ARM_W = 2.4              # bridge width (Y at the arms, X at the spine)
+BUTTON_BRIDGE_CLEARANCE = 1.0   # spine kept this far clear of the USB-C
+                                  # connector's own footprint
+
+_usb_inner_x = USB_CENTER_X - USB_DEPTH / 2
+BUTTON_SPINE_X = _usb_inner_x - BUTTON_BRIDGE_CLEARANCE - BUTTON_ARM_W / 2
+
+BUTTON_ARM_BOTTOM_Z = BOARD_TOP_Z + BUTTON_H + BUTTON_PLUNGER_TRAVEL
+BUTTON_ARM_TOP_Z = BUTTON_ARM_BOTTOM_Z + BUTTON_ARM_T
+# The post starts at the SAME level as the arm's own bottom (not its top),
+# so the two overlap through the arm's full thickness instead of merely
+# butting together at one Z-plane -- a deliberately redundant overlap for a
+# robust boolean union, and it means the post's own material is there from
+# the very first printed layer instead of appearing only once the arm's
+# 0.5mm has already gone down.
+BUTTON_POST_H = (PARTING_Z + PLATE_DEPTH) - BUTTON_ARM_BOTTOM_Z
+
+# RST (reset) needs to stay reachable but not so exposed it gets pressed by
+# accident -- recessed BUTTON_RST_OFFSET below the outer face. PRG (boot) is
+# the one actually reached for day-to-day use (held with RST for flashing),
+# so it gets the opposite treatment, proud of the face by the same amount.
+# Both are a per-button adjustment to the post's own length (BUTTON_POST_H
+# above is the shared flush baseline); the hole itself doesn't change, since
+# it already runs the plate's full depth regardless of how long the post is.
+BUTTON_RST_OFFSET = -0.5
+BUTTON_PRG_OFFSET = 0.5
+BUTTON_TOP_CHAMFER = 0.4        # printable break on each post's pressable top
+
+# (x, y, top_offset) -- RST at +Y, PRG at -Y, matching the reference photo.
+button_actuators = [
+    (BUTTON_CENTER_X, BUTTON_Y, BUTTON_RST_OFFSET),
+    (BUTTON_CENTER_X, -BUTTON_Y, BUTTON_PRG_OFFSET),
+]
 
 # GPS and battery/solar underside connector centres -- edge-referenced off
 # the (shifted) board ends, matching the caliper measurements. Hoisted to
@@ -1602,6 +1695,14 @@ def build_plate():
 
     plate = plate.cut(_sma_cutter())
 
+    # Button actuator holes: a plain constant-diameter through-hole for the
+    # bridge's post -- no counterbore, since the post itself has no wider
+    # head to recess (see the button bridge config block for why).
+    for (x, y) in button_positions:
+        plate = plate.cut(
+            cq.Workplane("XY").center(x, y).circle(BUTTON_HOLE_D / 2).extrude(PLATE_DEPTH)
+        )
+
     return plate.cut(_usb_cutter().translate((0, 0, -PARTING_Z)))
 
 
@@ -1673,7 +1774,20 @@ def build_board():
         .rect(CONN_W, CONN_D)
         .extrude(-CONN_H)
     )
-    return pcb.union(oled).union(usb).union(ufl).union(gps_conn).union(power_conn)
+    # The two tactile buttons (PRG/boot and RST), top-mounted alongside USB-C.
+    buttons = None
+    for bx, by in button_positions:
+        b = (
+            cq.Workplane("XY")
+            .workplane(offset=BOARD_TOP_Z)
+            .center(bx, by)
+            .rect(BUTTON_W, BUTTON_D)
+            .extrude(BUTTON_H)
+        )
+        buttons = b if buttons is None else buttons.union(b)
+
+    return (pcb.union(oled).union(usb).union(ufl).union(gps_conn)
+            .union(power_conn).union(buttons))
 
 
 def build_sma_connector():
@@ -1779,6 +1893,70 @@ def build_retainer():
     return plank
 
 
+def build_button_bridge():
+    """Separate printed part carrying both button actuators, joined under
+    the lid instead of two loose pieces. Global coordinates, like the other
+    real (printable or mock) parts -- both real hole positions are baked in
+    directly, so this is built once, not mirrored at use time.
+
+    Round posts pass through the plate's ceiling holes (build_plate()) down
+    to a flat bracket that reaches the real buttons. The bracket is routed
+    in a C: two arms run in X from the spine out to each button position at
+    Y = +-BUTTON_Y, clear of the USB-C connector the whole way since the
+    connector's Y half-span (USB_W/2 = 4.5) never reaches BUTTON_Y (8.15);
+    the spine then joins the two arms at X = BUTTON_SPINE_X, inboard of
+    (and BUTTON_BRIDGE_CLEARANCE clear of) the connector's own footprint.
+    A straight Y-running bridge between the buttons would cut right through
+    the connector -- it sits flush against the ceiling with zero spare
+    headroom (CEILING_CLEARANCE == USB_H), so it can only be dodged
+    in-plane, not stepped over.
+
+    Dropped straight down as one rigid motion during assembly: both posts
+    are vertical and parallel, so both reach the outer face at the same
+    moment the arms sweep down into the open ceiling cavity. Simplest done
+    before the board goes in, like the retainer.
+
+    Each post is a single constant diameter (BUTTON_POST_D) from the arm's
+    own bottom face up to (near) flush with the plate's outer face -- no
+    wider head, no counterbore (see the config block above for why). It
+    starts at BUTTON_ARM_BOTTOM_Z, the same level as the arm's own bottom
+    rather than its top, so post and arm overlap through the arm's full
+    thickness instead of only touching at one Z-plane.
+
+    The two posts are NOT the same length: RST is recessed BUTTON_RST_OFFSET
+    below the outer face (reachable, but not so exposed it gets pressed by
+    accident), and PRG sits proud by the same amount (BUTTON_PRG_OFFSET),
+    since it's the one actually reached for everyday use. Each post's
+    pressable top edge gets a BUTTON_TOP_CHAMFER break.
+    """
+    bracket = (
+        cq.Workplane("XY")
+        .workplane(offset=BUTTON_ARM_BOTTOM_Z)
+        .center(BUTTON_SPINE_X, 0)
+        .rect(BUTTON_ARM_W, 2 * BUTTON_Y + BUTTON_ARM_W)
+        .extrude(BUTTON_ARM_T)
+    )
+    for bx, by, top_offset in button_actuators:
+        arm = (
+            cq.Workplane("XY")
+            .workplane(offset=BUTTON_ARM_BOTTOM_Z)
+            .center((BUTTON_SPINE_X + bx) / 2, by)
+            .rect(bx - BUTTON_SPINE_X, BUTTON_ARM_W)
+            .extrude(BUTTON_ARM_T)
+        )
+        post = (
+            cq.Workplane("XY")
+            .workplane(offset=BUTTON_ARM_BOTTOM_Z)
+            .center(bx, by)
+            .circle(BUTTON_POST_D / 2)
+            .extrude(BUTTON_POST_H + top_offset)
+            .faces(">Z")
+            .chamfer(BUTTON_TOP_CHAMFER)
+        )
+        bracket = bracket.union(arm).union(post)
+    return bracket
+
+
 def assemble():
     """All solids positioned in the assembled coordinate frame."""
     return {
@@ -1788,6 +1966,7 @@ def assemble():
         "board": build_board(),
         "sma": build_sma_connector(),
         "retainer": build_retainer(),
+        "button_bridge": build_button_bridge(),
     }
 
 
@@ -1801,6 +1980,8 @@ if __name__ == "__main__":
     exporters.export(build_plate(), "output/heltec_v4_case_plate.step")
     exporters.export(parts["retainer"], "output/heltec_v4_case_retainer.stl")
     exporters.export(parts["retainer"], "output/heltec_v4_case_retainer.step")
+    exporters.export(parts["button_bridge"], "output/heltec_v4_case_button_bridge.stl")
+    exporters.export(parts["button_bridge"], "output/heltec_v4_case_button_bridge.step")
 
     assy = cq.Assembly()
     assy.add(parts["base"], name="base", color=cq.Color(0.25, 0.55, 0.85, 1.0))
@@ -1809,6 +1990,7 @@ if __name__ == "__main__":
     assy.add(parts["board"], name="board", color=cq.Color(0.80, 0.25, 0.25, 1.0))
     assy.add(parts["sma"], name="sma", color=cq.Color(0.75, 0.75, 0.78, 1.0))
     assy.add(parts["retainer"], name="retainer", color=cq.Color(0.55, 0.55, 0.95, 1.0))
+    assy.add(parts["button_bridge"], name="button_bridge", color=cq.Color(0.95, 0.85, 0.20, 1.0))
     assy.save("output/heltec_v4_case_assembly.step")
     assy.save("output/heltec_v4_case_assembly.stl")
     assy.save("output/heltec_v4_case_assembly.gltf")
