@@ -58,6 +58,7 @@ plate = plate_local.translate((0, 0, case.PARTING_Z))
 cell = case.build_cell()
 board = case.build_board()
 sma = case.build_sma_connector()
+retainer = case.build_retainer()
 
 solids = {
     "base": base,
@@ -65,11 +66,24 @@ solids = {
     "cell": cell,
     "board": board,
     "sma": sma,
+    "retainer": retainer,
 }
 
-# The plate's rail preload dimples are DESIGNED to interfere with the board
-# by PRELOAD_BUMP_INTERFERENCE (elastically compressed on assembly, so the
-# board doesn't rattle in BOARD_SLOT_CLEARANCE) -- that pair gets a wider,
+# The plate must come out as ONE connected solid. This is exactly the check
+# that would have caught the earlier rail/lip design's retaining lip, which
+# was a fully disconnected floating solid -- unioned into the same compound
+# but never actually touching the rest of the plate anywhere. A pairwise
+# collision/containment check alone can't see that; only a solid count can.
+check("plate is a single connected solid",
+      len(plate_local.val().Solids()) == 1,
+      f"{len(plate_local.val().Solids())} solid(s)")
+check("retainer is a single connected solid",
+      len(retainer.val().Solids()) == 1,
+      f"{len(retainer.val().Solids())} solid(s)")
+
+# The plate's preload dimples are DESIGNED to interfere with the board by
+# PRELOAD_BUMP_INTERFERENCE (elastically compressed as the retainer clamps
+# the board home, so it doesn't rattle) -- that pair gets a wider,
 # explicitly-bounded tolerance instead of the generic sliver check.
 _expect_preload = (2 * case.PRELOAD_BUMP_LEN
                     * (case.RAIL_OUTER_Y - case.RAIL_SHOULDER_INNER_Y)
@@ -165,18 +179,28 @@ check(
     intersect_volume(base, board) <= SLIVER_TOL,
     "board is carried entirely by the plate",
 )
+check(
+    "base carries no retainer-support features either",
+    intersect_volume(base, retainer) <= SLIVER_TOL,
+    "retainer is carried entirely by the plate, same as the board",
+)
 
 print("Checking containment...")
 # "sma" is deliberately excluded: its threaded barrel is *meant* to
 # protrude out through its own hole in the top wall, exactly like the
 # u.FL/USB-C mocks are excluded from the board's own containment story.
+# "board" gets a Z-max allowance of OLED_PROTRUSION for the same reason --
+# the OLED module is meant to poke that far past the top wall's own outer
+# face through the display window (see "Why the ceiling no longer clears
+# the OLED module" in README.md), not a containment failure.
 env = bbox(base.union(plate))
-for nm in ("cell", "board"):
+for nm in ("cell", "board", "retainer"):
     bb = bbox(solids[nm])
+    zmax_allow = case.OLED_PROTRUSION if nm == "board" else 0.0
     inside = (
         bb.xmin >= env.xmin - CLEAR_TOL and bb.xmax <= env.xmax + CLEAR_TOL
         and bb.ymin >= env.ymin - CLEAR_TOL and bb.ymax <= env.ymax + CLEAR_TOL
-        and bb.zmin >= env.zmin - CLEAR_TOL and bb.zmax <= env.zmax + CLEAR_TOL
+        and bb.zmin >= env.zmin - CLEAR_TOL and bb.zmax <= env.zmax + zmax_allow + CLEAR_TOL
     )
     check(
         f"inside case envelope: {nm}",
@@ -187,15 +211,15 @@ for nm in ("cell", "board"):
     )
 
 print("Checking the board is actually supported...")
-# Probe along the rail shoulder's span, at both edges, just above the board's
-# top face -- the shoulder must be present (registering the board) the whole
-# way from the far end to the USB-C endstop.
+# Probe along the shoulder's span, at both edges, just above the board's top
+# face -- the shoulder must be present (registering the board) the whole way
+# from the far end to the USB-C endstop.
 _rail_x0 = case.BOARD_FAR_END_X - 1.0
 _rail_x1 = case.BOARD_CONNECTOR_END_X
 for frac in (0.1, 0.5, 0.9):
     px = _rail_x0 + frac * (_rail_x1 - _rail_x0)
     for sign in (1, -1):
-        py = sign * (case.RAIL_SHOULDER_INNER_Y + case.RAIL_OUTER_Y) / 2
+        py = sign * (case.RAIL_SHOULDER_INNER_Y + case.SHOULDER_OUTER_Y) / 2
         probe = (
             cq.Workplane("XY")
             .workplane(offset=case.BOARD_TOP_LOCAL + case.PARTING_Z + 0.05)
@@ -204,24 +228,98 @@ for frac in (0.1, 0.5, 0.9):
             .extrude(0.4)
         )
         v = intersect_volume(plate, probe)
-        check(f"rail shoulder present at X={px:.1f}, Y={py:.1f}", v > 0.2,
+        check(f"shoulder present at X={px:.1f}, Y={py:.1f}", v > 0.2,
               f"{v:.2f} mm^3 of shoulder")
 
-# The lip must actually trap the board's underside somewhere past the
-# lead-in gap, or the board can simply fall back out.
-_lip_probe_x = _rail_x0 + case.LIP_LEAD_IN + 1.0
-for sign in (1, -1):
-    py = sign * (case.RAIL_LIP_INNER_Y + case.RAIL_OUTER_Y) / 2
+# What stops the board falling back out now is the retainer plank, not a
+# lip -- it must actually reach up and touch both underside connectors
+# (zero gap by construction), not just sit somewhere nearby with a gap.
+for conn_x, name in ((case.GPS_CONN_X, "GPS"), (case.POWER_CONN_X, "battery/solar")):
+    contact_z = case.BOARD_UNDER_Z - case.CONN_H
     probe = (
         cq.Workplane("XY")
-        .workplane(offset=case.BOARD_UNDER_LOCAL + case.PARTING_Z - case.BOARD_SLOT_CLEARANCE - 0.05)
-        .center(_lip_probe_x, py)
-        .rect(1.0, 1.0)
-        .extrude(0.4)
+        .workplane(offset=contact_z - 0.05)
+        .center(conn_x, 0)
+        .rect(case.CONN_W - 0.5, case.RETAINER_WIDTH - 0.5)
+        .extrude(0.1)
     )
-    v = intersect_volume(plate, probe)
-    check(f"lip traps board underside at X={_lip_probe_x:.1f}, Y={py:.1f}", v > 0.2,
-          f"{v:.2f} mm^3 of lip")
+    v = intersect_volume(retainer, probe)
+    check(f"retainer reaches the {name} connector's contact height", v > 0.05,
+          f"{v:.3f} mm^3 of retainer at the connector's underside")
+
+# The retainer's own mounting ears must actually have a boss to screw into
+# -- same "boss intact" volume-comparison pattern used for the case screw
+# bosses: build the expected solid (ear block minus the pilot bore, minus
+# the four rounded corners) and compare it against what's actually there.
+# Width comes from _retainer_pocket_x_range(), not a flat RETAINER_EAR_LEN:
+# the boss is built to the same width as the ear-notch pocket it roofs, and
+# the POWER_CONN_X one is wider still, stretched out to merge with the +X
+# corner screw boss instead of leaving a gap next to it.
+_boss_cy = case.RETAINER_BOSS_CY
+_boss_w = case.RETAINER_BOSS_Y1 - case.RAIL_OUTER_Y
+_r = case.RETAINER_EAR_FILLET
+# Only the two INBOARD corners are rounded now -- the outboard pair is
+# square (see _retainer_pocket_sharp_corners), so half the old corner loss.
+_fillet_loss = (2 * _r * _r - math.pi * _r * _r / 2) * case.RETAINER_SCREW_ENGAGE
+for conn_x, merge_corner in case.RETAINER_CONNECTORS:
+    bx0, bx1 = case._retainer_pocket_x_range(conn_x, merge_corner)
+    for sign in (1, -1):
+        py = sign * _boss_cy
+        block = (
+            cq.Workplane("XY")
+            .workplane(offset=case.BOARD_UNDER_Z - case.CONN_H)
+            .center((bx0 + bx1) / 2, py)
+            .rect(bx1 - bx0, _boss_w)
+            .extrude(case.RETAINER_SCREW_ENGAGE)
+        )
+        want_v = (volume(block)
+                  - math.pi * (case.RETAINER_SCREW_PILOT_D / 2) ** 2 * case.RETAINER_SCREW_ENGAGE
+                  - _fillet_loss)
+        got_v = intersect_volume(plate, block)
+        # Each FREE boss end gets a concave blend fillet into the side wall
+        # (RETAINER_BOSS_WALL_FILLET, see build_plate()), which *adds* a
+        # cove of material inside this probe that the flat idealisation
+        # above doesn't model. Bound it rather than just loosening the
+        # check: the cove can't exceed the fillet's own r x r cross-section
+        # swept over the probe's depth. The merged end has no such cove --
+        # it runs into the corner post instead.
+        _n_free = 1 if merge_corner else 2
+        _cove_allow = (_n_free * case.RETAINER_BOSS_WALL_FILLET ** 2
+                       * case.RETAINER_SCREW_ENGAGE)
+        # One-sided above once the boss window itself already reaches the
+        # corner post (merge_corner's max() becomes a no-op there, see
+        # _retainer_ear_x_range): the post's own material can then spill an
+        # unmodelled amount into this probe, which is a bonus, not a defect.
+        # Either way a *shortfall* still fails -- that is the real failure
+        # mode this guards (a boss gone thin or hollowed out).
+        ok = (got_v >= want_v - 0.5 if merge_corner
+              else want_v - 0.5 <= got_v <= want_v + _cove_allow + 0.5)
+        check(f"retainer boss intact at X={conn_x:.1f}, Y={py:.1f}",
+              ok,
+              f"{got_v:.2f} of {want_v:.2f} mm^3")
+
+# The retainer's ears are brought up from OUTSIDE the plate's open
+# underside, before the plate is ever closed onto the base -- so the path
+# they travel spans the full plug depth (Z < 0) as well as the ledge above
+# it, not just the ledge. An earlier version of the ledge notch stopped
+# exactly at the parting line, leaving the plug itself (solid there by
+# design, for the half-lap fit) blocking the ears' only way in. This probes
+# the whole path length, not just the ledge band, so that regression can't
+# recur silently.
+for conn_x in (case.GPS_CONN_X, case.POWER_CONN_X):
+    for sign in (1, -1):
+        py = sign * _boss_cy
+        path = (
+            cq.Workplane("XY")
+            .workplane(offset=-case.PLUG_DEPTH - 2)
+            .center(conn_x, py)
+            .rect(case.RETAINER_EAR_LEN - 1.0, _boss_w - 0.5)
+            .extrude((case.BOARD_UNDER_LOCAL - case.CONN_H) - (-case.PLUG_DEPTH - 2))
+        )
+        v = intersect_volume(plate_local, path)
+        check(f"retainer ear insertion path clear at X={conn_x:.1f}, Y={py:.1f}",
+              v <= SLIVER_TOL,
+              f"{v:.3f} mm^3 obstructing the path from outside the plate to the boss")
 
 print("Checking design clearances...")
 check("cell radial clearance in cradle", case.CELL_CLEARANCE / 2 > 0,
@@ -311,8 +409,21 @@ check("(informational) old base-wall axial mount would no longer fit",
       f"needs {_axial_depth_needed:.1f}mm axially, SMA_CLEAR_DEPTH only "
       f"gives {case.SMA_CLEAR_DEPTH:.2f}mm -- why the mount moved to the plate's wall")
 
-check("headroom above OLED module", case.OLED_TOP_GAP > 0,
-      f"{case.OLED_TOP_GAP:.2f} mm to the window")
+# The ceiling deliberately skips the OLED module (it pokes through its own
+# window instead) and is set by the tallest of the *other* top-side
+# components -- confirm that's still USB-C, not something that quietly
+# became taller, and that the module actually protrudes rather than falling
+# back to the old recessed-behind-the-window behaviour.
+check("ceiling is set by the tallest non-OLED component",
+      abs(case.PLATE_INNER_H - (case.BOARD_TOP_LOCAL + case.CEILING_CLEARANCE)) <= CLEAR_TOL,
+      f"ceiling {case.PLATE_INNER_H:.2f} vs board top + clearance "
+      f"{case.BOARD_TOP_LOCAL + case.CEILING_CLEARANCE:.2f} mm")
+check("USB-C is actually the tallest non-OLED component",
+      case.USB_H >= case.UFL_H,
+      f"USB-C {case.USB_H:.2f} vs u.FL {case.UFL_H:.2f} mm")
+check("OLED module protrudes past the top wall's outer face",
+      case.OLED_PROTRUSION > 0,
+      f"{case.OLED_PROTRUSION:.2f} mm proud of the outer face")
 
 # Retention rails must miss the OLED window but stay within the board width
 check("rail shoulder clears the OLED window",
@@ -324,14 +435,32 @@ check("rail outer edge lands within the board width",
       f"rail outer edge {case.RAIL_OUTER_Y:.2f} "
       f"vs board+clearance edge {case.BOARD_W / 2 + case.BOARD_CLEARANCE:.2f} mm")
 
-# The board's shift toward the USB-C end must stay clear of the +X corner
-# screw boss -- that's the constraint that actually caps BOARD_CENTER_X.
-_boss_x = case.OUTER_L / 2 - case.SCREW_INSET
-_board_pocket_edge = case.BOARD_CONNECTOR_END_X + case.BOARD_CLEARANCE
-check("board pocket clears the +X corner screw boss",
-      _boss_x - case.M2_BOSS_D / 2 - _board_pocket_edge >= -CLEAR_TOL,
-      f"boss inner edge {_boss_x - case.M2_BOSS_D / 2:.2f} "
-      f"vs board pocket edge {_board_pocket_edge:.2f} mm")
+# The board's shift toward the USB-C end is capped by the +X corner screw
+# boss -- BOARD_CENTER_X_TANGENT puts the board's chamfered corner exactly
+# tangent to its rounded (see _screw_boss_sharp_corners) SW corner arc
+# (see case.py's derivation). Checked directly against the real (chamfered)
+# board solid and the real boss shape, not just by trusting the closed-form
+# formula: zero overlap at the actual position, and a real overlap if
+# nudged 0.1mm further, confirming this is genuinely the limit rather than
+# a conservative stand-off short of it.
+_corner_boss_xy = [p for p in case.screw_positions if p[0] > 0 and p[1] > 0][0]
+_boss_solid = case._rounded_square_boss(
+    _corner_boss_xy[0], _corner_boss_xy[1], case.M2_BOSS_D / 2, case.M2_BOSS_D / 2,
+    0, case.TOTAL_HEIGHT, case.BOSS_CORNER_FILLET,
+    case._screw_boss_sharp_corners(*_corner_boss_xy),
+)
+_tangent_overlap = intersect_volume(board, _boss_solid)
+check("board is tangent to the +X corner boss, not overlapping",
+      _tangent_overlap <= SLIVER_TOL,
+      f"{_tangent_overlap:.4f} mm^3 overlap")
+_pushed_overlap = intersect_volume(board.translate((0.1, 0, 0)), _boss_solid)
+check("board sits genuinely at the tangent limit, not short of it",
+      # A 0.1mm nudge past a true tangent point only ever grazes a thin
+      # sliver of the boss's fillet arc (radius BOSS_CORNER_FILLET) --
+      # nowhere near SLIVER_TOL's boolean-noise threshold -- so this needs
+      # its own, much smaller bar.
+      _pushed_overlap > 0.01,
+      f"pushing 0.1mm further gives {_pushed_overlap:.4f} mm^3 overlap")
 
 # Regression guard for the whole point of the X-shift: USB-C connector face
 # should sit meaningfully closer to the case's inner wall than the old,
@@ -483,7 +612,10 @@ for (x, y) in case.screw_positions:
 # the inward side of this same margin band is legitimately open cavity, not
 # a protrusion, so a full-ring probe would be the wrong test.
 for (x, y) in case.screw_positions:
-    r = case.M2_BOSS_D / 2 + case.BOSS_OUTER_MARGIN
+    # The boss's own reach along this diagonal is a rounded square's corner
+    # distance (_boss_diag_reach), not the flat half-width -- see case.py's
+    # SCREW_INSET derivation, which this check mirrors.
+    r = case._boss_diag_reach + case.BOSS_OUTER_MARGIN
     px = x + math.copysign(r / math.sqrt(2), x)
     py = y + math.copysign(r / math.sqrt(2), y)
     probe = (

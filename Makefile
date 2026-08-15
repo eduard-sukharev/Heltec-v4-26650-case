@@ -29,6 +29,8 @@ GENERATED := \
 	$(OUTDIR)/heltec_v4_case_base.step \
 	$(OUTDIR)/heltec_v4_case_plate.stl \
 	$(OUTDIR)/heltec_v4_case_plate.step \
+	$(OUTDIR)/heltec_v4_case_retainer.stl \
+	$(OUTDIR)/heltec_v4_case_retainer.step \
 	$(OUTDIR)/heltec_v4_case_assembly.step \
 	$(OUTDIR)/heltec_v4_case_assembly.stl \
 	$(OUTDIR)/heltec_v4_case_assembly.gltf
@@ -42,7 +44,7 @@ generate: $(OUTDIR)/.generated preview
 
 all: generate verify
 
-# case.py writes all seven STL/STEP/glTF files together in one process, so
+# case.py writes all nine STL/STEP/glTF files together in one process, so
 # they share a single rule with a stamp file: any of them missing, or case.py
 # newer than the stamp, re-runs the whole generator exactly once.
 $(OUTDIR)/.generated: case.py

@@ -659,7 +659,7 @@ RETAINER_X1 = min(POWER_CONN_X + CONN_W / 2 + RETAINER_MARGIN,
                    _plug_short_end_inner_x - _PLUG_SHORT_END_MARGIN)
 RETAINER_EAR_LEN = 4.0        # X length of each mounting ear/boss pair --
                                # the bosses themselves fill the dead zone
-                               # between RAIL_OUTER_Y and SHOULDER_OUTER_Y
+                               # between RAIL_OUTER_Y and RETAINER_BOSS_Y1
                                # (see build_plate()), so they need no
                                # separate diameter/Y-position of their own.
                                # Kept just wide enough for the pilot hole
@@ -667,10 +667,31 @@ RETAINER_EAR_LEN = 4.0        # X length of each mounting ear/boss pair --
 RETAINER_EAR_FILLET = 0.8      # rounds the ear/boss/notch corners on both
                                 # the retainer and the plate -- must stay
                                 # under half of every rectangle's shortest
-                                # side (the boss dead zone is only 2.45mm)
+                                # side (the boss dead zone is only
+                                # RAIL_OUTER_Y..RETAINER_BOSS_Y1)
 RETAINER_SCREW_SHAFT_D = M2_SHAFT_D
 RETAINER_SCREW_PILOT_D = M2_PILOT_D
 RETAINER_SCREW_ENGAGE = 4.0   # pilot hole depth into the boss
+
+# The bare dead zone between the board's pocket edge (RAIL_OUTER_Y) and the
+# wall's inner face (SHOULDER_OUTER_Y) is only 2.45mm wide. Centred in that,
+# the retainer's own screw leaves almost no wall: the ear's M2 clearance
+# hole (M2_SHAFT_D=2.2mm) is nearly as wide as the whole zone, down to
+# ~0.125mm of plastic on either side of it -- not printable, and not a real
+# hole once printed (it breaks out to the ear's own edge). The plate-side
+# boss's pilot hole (M2_PILOT_D=1.6mm) fares better but is still thin
+# (~0.425mm/side) on its unbacked (board-pocket) face.
+#
+# Recessing the dead zone's outboard edge into the side wall (which is
+# WALL=2.2mm thick outboard of SHOULDER_OUTER_Y) buys width without
+# touching the board-clearance or wall-thickness constants everything else
+# is built from. RETAINER_BOSS_RECESS is how far past SHOULDER_OUTER_Y that
+# goes; it has to stay well under WALL so real skin survives outboard of
+# it, but doesn't have to hit a printability minimum since it is buried
+# inside the assembled case, not a bare printed edge.
+RETAINER_BOSS_RECESS = 1.0
+RETAINER_BOSS_Y1 = SHOULDER_OUTER_Y + RETAINER_BOSS_RECESS
+RETAINER_BOSS_CY = (RAIL_OUTER_Y + RETAINER_BOSS_Y1) / 2
 RETAINER_BOSS_WALL_FILLET = 0.4  # concave fillet blending a retainer boss
                                    # into the shoulder overhead and into the
                                    # side wall its free end butts against --
@@ -719,13 +740,16 @@ def _screw_boss_sharp_corners(x, y):
 
     The corner facing the retainer boss (the plate's +X posts' -X-facing
     corners) does NOT need to: the retainer boss's Y-band (RAIL_OUTER_Y to
-    SHOULDER_OUTER_Y, 2.45mm) reaches the post's flat -X face, but only
-    across its own middle -- the post's corner fillets only affect the
-    outer BOSS_CORNER_FILLET (1mm) of that face near each end (Y within
-    1mm of +-M2_BOSS_D/2 from the post's own centre), and the retainer
-    boss's band sits comfortably inside that, nowhere near either fillet. A
-    flat face merges cleanly with another flat face regardless of what its
-    own corners, well away from the contact area, are doing. It's only the
+    RETAINER_BOSS_Y1, 3.45mm) reaches the post's flat -X face across most of
+    its own middle -- the post's corner fillets only affect the outer
+    BOSS_CORNER_FILLET (1mm) of that face near each end (Y within 1mm of
+    +-M2_BOSS_D/2 from the post's own centre). At the merged connector
+    (POWER_CONN_X) the recessed band's outboard tip does reach ~0.75mm into
+    that fillet-affected sliver, but a flat box overlapping a convex fillet
+    surface there doesn't reproduce the tangent-arc degeneracy this
+    function exists to avoid (that only bites when *two* rounded surfaces
+    meet); the union stays a single clean solid (see verify.py's "retainer
+    boss intact"/"plate is a single connected solid" checks). It's only the
     *retainer boss's own* corner, right at the point of contact, that has
     to stay sharp for that junction (see the "Retainer mounting bosses"
     loop in build_plate()).
@@ -1154,15 +1178,18 @@ def _retainer_ear_notch():
 
     Y extent is asymmetric on purpose: generous margin inward (into
     already-open cavity, so it costs nothing) but only a boolean-robustness
-    epsilon outward, stopping right at the wall's own inner face
-    (SHOULDER_OUTER_Y) instead of past it -- an earlier symmetric-width
-    version overshot 0.5mm into the solid outer wall, cutting a visible
-    pocket into it that was never actually needed."""
+    epsilon outward, stopping right at RETAINER_BOSS_Y1 instead of further
+    past it -- an earlier symmetric-width version overshot 0.5mm past that
+    line into the solid outer wall, cutting a visible pocket that was never
+    actually needed. RETAINER_BOSS_Y1 itself is *not* the wall's bare inner
+    face (SHOULDER_OUTER_Y) any more -- it is recessed RETAINER_BOSS_RECESS
+    past it, on purpose, to give the retainer's own screw hole a real wall
+    (see RETAINER_BOSS_RECESS)."""
     retainer_top_local = BOARD_UNDER_LOCAL - CONN_H
     z0 = -PLUG_DEPTH - 1.0
     z1 = retainer_top_local
     y0 = RAIL_OUTER_Y - 1.0
-    y1 = SHOULDER_OUTER_Y + 0.05
+    y1 = RETAINER_BOSS_Y1 + 0.05
     cy = (y0 + y1) / 2
     w = y1 - y0
     cutter = None
@@ -1422,17 +1449,18 @@ def build_plate():
     # plank's own contact height -- boss_z0 is the same Z the retainer's ear
     # top face sits at (see build_retainer()), so the two meet flush with no
     # gap -- outboard of the board. The dead zone between the board's own
-    # pocket edge (RAIL_OUTER_Y) and the plate's wall (SHOULDER_OUTER_Y) is
-    # only 2.45mm wide -- too narrow for a free-standing round boss without
-    # either overlapping the board or poking through the wall -- so each
-    # boss is a block that exactly fills that gap and butts straight into
-    # the solid wall, rather than a cylinder placed within it. One pair per
-    # connector position. A pilot hole is drilled from the bottom for the
-    # retainer's own screw.
+    # pocket edge (RAIL_OUTER_Y) and the wall's inner face (SHOULDER_OUTER_Y)
+    # is only 2.45mm wide -- too narrow for a free-standing round boss
+    # without either overlapping the board or poking through the wall -- so
+    # each boss is a block that exactly fills that gap, recessed
+    # RETAINER_BOSS_RECESS further into the solid wall (see that constant),
+    # rather than a cylinder placed within it. One pair per connector
+    # position. A pilot hole is drilled from the bottom for the retainer's
+    # own screw.
     retainer_top_local = BOARD_UNDER_LOCAL - CONN_H
     boss_z0 = retainer_top_local
     boss_h = BOARD_TOP_LOCAL - boss_z0
-    boss_y0, boss_y1 = RAIL_OUTER_Y, SHOULDER_OUTER_Y
+    boss_y0, boss_y1 = RAIL_OUTER_Y, RETAINER_BOSS_Y1
     boss_cy = (boss_y0 + boss_y1) / 2
     boss_w = boss_y1 - boss_y0
     for conn_x, merge_corner in RETAINER_CONNECTORS:
@@ -1466,7 +1494,8 @@ def build_plate():
             #     the wider shoulder: RAIL_SHOULDER_INNER_Y is inboard of
             #     boss_y0, so the shoulder overhangs the boss on that side.
             #   - at each FREE X end, where the boss's end face butts into
-            #     the plate's own side wall at SHOULDER_OUTER_Y. The merged
+            #     the plate's own side wall at boss_y1 (RETAINER_BOSS_Y1,
+            #     recessed into the wall -- see that constant). The merged
             #     end (bx1 under merge_corner) has no such edge -- it runs
             #     into the corner screw post and unions with it instead.
             #
@@ -1490,7 +1519,7 @@ def build_plate():
                 # no arc to step past, unlike when those corners were
                 # rounded and the edge sat a fillet radius inboard.
                 tx = end_x
-                wall_y = sign * SHOULDER_OUTER_Y
+                wall_y = sign * boss_y1
                 _sel = cq.selectors.SumSelector(_sel, cq.selectors.BoxSelector(
                     (tx - 0.05, min(wall_y - 0.05, wall_y + 0.05), boss_z0 - 0.05),
                     (tx + 0.05, max(wall_y - 0.05, wall_y + 0.05), boss_z0 + boss_h + 0.05),
@@ -1706,13 +1735,16 @@ def build_retainer():
         .edges("|Z")
         .fillet(RETAINER_EAR_FILLET)
     )
-    # Ears reach from the boss out at SHOULDER_OUTER_Y back in to just past
+    # Ears reach from the boss out at RETAINER_BOSS_Y1 back in to just past
     # the plank's own edge -- a 1mm overlap into the plank body guarantees a
     # fused connection (the same disconnection bug the old rail/lip design
     # had) without making the ear as wide as the whole half-plate the way
-    # reaching all the way back to the centreline would.
+    # reaching all the way back to the centreline would. RETAINER_BOSS_Y1
+    # (not the bare wall face SHOULDER_OUTER_Y) is what actually matters
+    # here: it is what gives the ear's own clearance hole a real wall on
+    # its outboard side (see RETAINER_BOSS_RECESS).
     ear_y0 = RETAINER_WIDTH / 2 - 1.0
-    ear_y1 = SHOULDER_OUTER_Y
+    ear_y1 = RETAINER_BOSS_Y1
     ear_cy = (ear_y0 + ear_y1) / 2
     ear_w = ear_y1 - ear_y0
     for conn_x, _merge_corner in RETAINER_CONNECTORS:
@@ -1740,7 +1772,7 @@ def build_retainer():
             plank = plank.cut(
                 cq.Workplane("XY")
                 .workplane(offset=top_z - RETAINER_THICKNESS - 0.5)
-                .center(conn_x, sign * (RAIL_OUTER_Y + SHOULDER_OUTER_Y) / 2)
+                .center(conn_x, sign * RETAINER_BOSS_CY)
                 .circle(RETAINER_SCREW_SHAFT_D / 2)
                 .extrude(RETAINER_THICKNESS + 1.0)
             )
