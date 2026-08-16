@@ -18,7 +18,7 @@ button bridge as small separately-printed parts) for:
   wall** (see "Why the SMA mount moved to the plate" below)
 - A single **26650** Li-ion cell as the power source
 
-Outer size **80.1 × 35.7 × 42.3 mm**.
+Outer size **79.7 × 34.7 × 42.3 mm**.
 
 ## Files
 
@@ -456,7 +456,7 @@ first-pass mechanical design, not something validated by a real print yet:
 worth a test print of the plate + retainer alone (with a scrap board or a
 3D-printed board mock) before trusting it for the real hardware.
 
-### Why the case is 80.1 mm long
+### Why the case is 79.7 mm long
 
 The insertion shaft spans most of the cavity width, so a screw boss placed
 anywhere within its length would stand in the cell's way. `OUTER_L` is
@@ -476,8 +476,11 @@ stopped needing that offset for axial room.)
 the smallest value that still keeps the boss enclosed, which is what
 shrank the case from 92.7 mm (the previous, arbitrarily generous 6.0 mm
 inset) down to 86.1 mm on its own, before the `CELL_OFFSET_X` change below
-took it to 80.1 mm. Two independent constraints compete, and `SCREW_INSET`
-takes whichever binds tighter:
+took it to 80.1 mm, and a later tightening of `BOSS_END_MARGIN` (0.5 mm →
+0.3 mm — the gap between the cell's own axial end-stop and the corner
+screw post, backed off from the geometric limit of ~0.1 mm to stay above
+typical FDM print tolerance) to 79.7 mm. Two independent constraints
+compete, and `SCREW_INSET` takes whichever binds tighter:
 
 - **Corner tangency**: the boss's closest approach to the outside is along
   the corner's 45° diagonal, where the outer profile is the `CORNER_FILLET`
@@ -741,10 +744,12 @@ the cell entirely: the plate's whole Z-band sits above `CELL_TOP_Z`, so
 unlike a base-mounted hole, axial depth here was never limited by
 `SMA_CLEAR_DEPTH` or the cell's near end at all -- only by the board's own
 far edge, which is much further away. That's what let `CELL_OFFSET_X` go
-to **0** (see above) instead of growing to 6.1mm: **the case is 80.1mm
-long now, 6mm shorter than the 86.1mm it would've been just from the other
-changes this session, and 12.3mm shorter than the 92.4mm a corrected axial
-base mount would have needed.**
+to **0** (see above) instead of growing to 6.1mm: **the case was 80.1mm
+long at that point, 6mm shorter than the 86.1mm it would've been just from
+the other changes this session, and 12.3mm shorter than the 92.4mm a
+corrected axial base mount would have needed.** (A later tightening of
+`BOSS_END_MARGIN` took it down further, to the current 79.7mm — see "Why
+the case is 79.7 mm long" above.)
 
 Two real constraints replace the old cell-clearance one:
 

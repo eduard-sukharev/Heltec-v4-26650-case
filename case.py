@@ -437,8 +437,15 @@ SCREW_LEN = 16.0           # M2x16 SHCS for the case halves
 SCREW_ENGAGE = SCREW_LEN - PLATE_INNER_H
 
 # --- Derived plan dimensions ------------------------------------------------
-# Width is set by the cell (which is wider than the board) plus side walls.
-INNER_W = max(BOARD_W + 2 * BOARD_CLEARANCE, CELL_D + CELL_CLEARANCE) + 4.0
+# Width is set by the cell (which is wider than the board) plus side walls,
+# plus enough pad beyond the bare cell/board envelope for the retainer boss
+# dead zone (RAIL_OUTER_Y..RETAINER_BOSS_Y1) to carry its own concave wall
+# fillet (RETAINER_BOSS_WALL_FILLET). Bisected against OCCT's fillet solver
+# directly: +2.0 fails (BRep_API: command not done on the retainer boss
+# fillet in build_plate()), +2.5 also fails, +3.0 is the first value that
+# solves -- so this is pinned at the solver's own limit, not a target
+# picked in advance. Re-bisect if that fillet's edge geometry moves.
+INNER_W = max(BOARD_W + 2 * BOARD_CLEARANCE, CELL_D + CELL_CLEARANCE) + 3.0
 OUTER_W = INNER_W + 2 * WALL
 
 # The registration shoulder is built out to the plate's own wall (rather
@@ -458,7 +465,14 @@ SHOULDER_OUTER_Y = INNER_W / 2
 # Kept to the same order as the other minimal-but-safe clearances in this
 # file (RETAINER_EAR_CORNER_MARGIN etc.), now that the boss itself sits much
 # closer to the corner and no longer needs a generous margin here too.
-BOSS_END_MARGIN = 0.5
+# 0.3mm, not tighter: geometry itself (verify.py) tolerates down to ~0.1mm,
+# but this is a real gap between two separate printed features (the cell's
+# own axial end-stop and the corner screw post), not just a solver
+# tolerance -- and 0.1mm is under a typical FDM nozzle's positional
+# accuracy, so it would round away to a true collision on some printers.
+# 0.3mm keeps real margin against that while still being noticeably
+# tighter than the original 0.5mm.
+BOSS_END_MARGIN = 0.3
 _min_half_len = CELL_FAR_HALF_LEN + BOSS_END_MARGIN + M2_BOSS_D / 2 + SCREW_INSET
 OUTER_L = 2 * max(_min_half_len, BOARD_L / 2 + WALL + 4.0)
 INNER_L = OUTER_L - 2 * WALL
