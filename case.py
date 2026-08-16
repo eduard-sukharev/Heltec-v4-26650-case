@@ -685,6 +685,15 @@ BUTTON_ARM_T = 0.5              # bridge thickness (Z) -- capped by the same
 BUTTON_ARM_W = 2.4              # bridge width (Y at the arms, X at the spine)
 BUTTON_BRIDGE_CLEARANCE = 1.0   # spine kept this far clear of the USB-C
                                   # connector's own footprint
+# Each arm meets the spine flush along its OUTER edge (the spine's own half-
+# height is exactly BUTTON_Y + ARM_W/2, so it lines up with the outer edge
+# of both arms by construction) -- the only real corner is on the INNER
+# side, a sharp reflex (270 deg of material) right where the arm steps down
+# out of the spine's full Y-run. That is exactly the kind of stress-riser
+# and layer-adhesion weak point that is worth easing, so it is filled with a
+# 45 deg wedge rather than left as a bare right angle -- see the bend wedge
+# in build_button_bridge().
+BUTTON_BEND_CHAMFER = 1.0
 
 _usb_inner_x = USB_CENTER_X - USB_DEPTH / 2
 BUTTON_SPINE_X = _usb_inner_x - BUTTON_BRIDGE_CLEARANCE - BUTTON_ARM_W / 2
@@ -706,7 +715,7 @@ BUTTON_POST_H = (PARTING_Z + PLATE_DEPTH) - BUTTON_ARM_BOTTOM_Z
 # Both are a per-button adjustment to the post's own length (BUTTON_POST_H
 # above is the shared flush baseline); the hole itself doesn't change, since
 # it already runs the plate's full depth regardless of how long the post is.
-BUTTON_RST_OFFSET = -0.5
+BUTTON_RST_OFFSET = -0.2
 BUTTON_PRG_OFFSET = 0.5
 BUTTON_TOP_CHAMFER = 0.4        # printable break on each post's pressable top
 
@@ -2183,6 +2192,16 @@ def build_button_bridge():
     accident), and PRG sits proud by the same amount (BUTTON_PRG_OFFSET),
     since it's the one actually reached for everyday use. Each post's
     pressable top edge gets a BUTTON_TOP_CHAMFER break.
+
+    Each arm meets the spine at a sharp reflex corner on its inner side (see
+    BUTTON_BEND_CHAMFER above) -- eased with a 45 deg wedge rather than left
+    as a bare right angle, both for printing (a mitred turn is a gentler
+    direction change for the nozzle than a sharp corner) and for durability
+    (a sharp internal corner is exactly where repeated flex concentrates
+    stress and layer lines are weakest). Built directly as a triangular
+    prism rather than a boolean chamfer on the arm/spine union -- a plain
+    filled wedge sidesteps the edge-selector fragility that a post-hoc
+    .chamfer() on a multi-box union invites elsewhere in this file.
     """
     bracket = (
         cq.Workplane("XY")
@@ -2208,7 +2227,26 @@ def build_button_bridge():
             .faces(">Z")
             .chamfer(BUTTON_TOP_CHAMFER)
         )
-        bracket = bracket.union(arm).union(post)
+        # Inner reflex corner, at the spine's outer (arm-side) face where
+        # the arm steps down out of the spine's full Y-run. s picks which
+        # side of the spine this arm is on, so the wedge's two legs run
+        # inward (-X, back into the spine) and toward the centreline
+        # (-s*Y, back into the spine's own Y-run) from the corner point --
+        # both directions are real material already, so the wedge only
+        # ever adds into the reflex void, never overlaps or re-cuts anything.
+        s = math.copysign(1, by)
+        corner_x = BUTTON_SPINE_X + BUTTON_ARM_W / 2
+        corner_y = by - s * BUTTON_ARM_W / 2
+        wedge = (
+            cq.Workplane("XY")
+            .workplane(offset=BUTTON_ARM_BOTTOM_Z)
+            .moveTo(corner_x, corner_y)
+            .lineTo(corner_x + BUTTON_BEND_CHAMFER, corner_y)
+            .lineTo(corner_x, corner_y - s * BUTTON_BEND_CHAMFER)
+            .close()
+            .extrude(BUTTON_ARM_T)
+        )
+        bracket = bracket.union(arm).union(post).union(wedge)
     return bracket
 
 
