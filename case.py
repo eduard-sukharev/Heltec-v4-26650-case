@@ -687,12 +687,15 @@ BUTTON_BRIDGE_CLEARANCE = 1.0   # spine kept this far clear of the USB-C
                                   # connector's own footprint
 # Each arm meets the spine flush along its OUTER edge (the spine's own half-
 # height is exactly BUTTON_Y + ARM_W/2, so it lines up with the outer edge
-# of both arms by construction) -- the only real corner is on the INNER
-# side, a sharp reflex (270 deg of material) right where the arm steps down
-# out of the spine's full Y-run. That is exactly the kind of stress-riser
-# and layer-adhesion weak point that is worth easing, so it is filled with a
-# 45 deg wedge rather than left as a bare right angle -- see the bend wedge
-# in build_button_bridge().
+# of both arms by construction) -- so the arm/spine junction itself has just
+# one real corner, on the INNER side: a sharp reflex (270 deg of material)
+# right where the arm steps down out of the spine's full Y-run. The spine's
+# own bare (non-arm) far corners, where its plain left face meets that same
+# flush top/bottom edge, are ordinary 90 deg convex corners instead. Both
+# kinds are exactly the sort of stress-riser and layer-adhesion weak point
+# worth easing, so every one of them gets a 45 deg break instead of a bare
+# right angle -- filled (reflex) or notched (convex) as appropriate, see the
+# wedges in build_button_bridge().
 BUTTON_BEND_CHAMFER = 1.0
 
 _usb_inner_x = USB_CENTER_X - USB_DEPTH / 2
@@ -2202,6 +2205,12 @@ def build_button_bridge():
     prism rather than a boolean chamfer on the arm/spine union -- a plain
     filled wedge sidesteps the edge-selector fragility that a post-hoc
     .chamfer() on a multi-box union invites elsewhere in this file.
+
+    The spine's own far (outer, non-arm) corners are plain right angles too
+    -- the two ends where its bare left face meets the top/bottom edge it
+    shares with an arm. Those get the same BUTTON_BEND_CHAMFER treatment,
+    cut as a triangular notch instead of filled, since here the corner is
+    convex (material to trim) rather than reflex (void to fill).
     """
     bracket = (
         cq.Workplane("XY")
@@ -2210,6 +2219,19 @@ def build_button_bridge():
         .rect(BUTTON_ARM_W, 2 * BUTTON_Y + BUTTON_ARM_W)
         .extrude(BUTTON_ARM_T)
     )
+    for sy in (1, -1):
+        corner_x = BUTTON_SPINE_X - BUTTON_ARM_W / 2
+        corner_y = sy * (BUTTON_Y + BUTTON_ARM_W / 2)
+        notch = (
+            cq.Workplane("XY")
+            .workplane(offset=BUTTON_ARM_BOTTOM_Z)
+            .moveTo(corner_x, corner_y)
+            .lineTo(corner_x + BUTTON_BEND_CHAMFER, corner_y)
+            .lineTo(corner_x, corner_y - sy * BUTTON_BEND_CHAMFER)
+            .close()
+            .extrude(BUTTON_ARM_T)
+        )
+        bracket = bracket.cut(notch)
     for bx, by, top_offset in button_actuators:
         arm = (
             cq.Workplane("XY")

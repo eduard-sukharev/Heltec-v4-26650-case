@@ -864,13 +864,17 @@ Each arm meets the spine flush along its *outer* edge — the spine's own
 half-height (`BUTTON_Y + BUTTON_ARM_W/2`) is built to line up with it
 exactly — but on the *inner* side, where the arm steps down out of the
 spine's full Y-run, that leaves a sharp reflex corner (270° of material,
-90° of void). Two sharp right-angle turns like that are exactly where a
-printed bracket is weakest: a stress riser under repeated flex, and a
-harder direction change for the nozzle than a smooth one. `BUTTON_BEND_CHAMFER`
-(1.0mm) fills each one with a 45° wedge instead of leaving it square — built
-as a plain triangular prism unioned in alongside the arm and post, rather
-than a boolean `.chamfer()` on the finished arm/spine union, sidestepping
-the edge-selector fragility that approach invites elsewhere in this file.
+90° of void). The spine's own bare far corners — where its plain left face
+meets that same flush top/bottom edge, with no arm involved — are ordinary
+90° convex corners instead. Sharp right-angle turns of either kind are
+exactly where a printed bracket is weakest: a stress riser under repeated
+flex, and a harder direction change for the nozzle than a smooth one.
+`BUTTON_BEND_CHAMFER` (1.0mm) breaks every one of them at 45° instead of
+leaving it square — a wedge *filled in* at each reflex corner, a triangular
+notch *cut out* at each convex one. Both are built as plain triangular
+prisms unioned or cut in directly, rather than a boolean `.chamfer()` on
+the finished arm/spine union, sidestepping the edge-selector fragility that
+approach invites elsewhere in this file.
 
 `verify.py` checks the bridge is a single connected solid (the same
 multi-primitive-union concern the plate/retainer connectivity checks exist
