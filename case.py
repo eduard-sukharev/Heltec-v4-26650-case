@@ -761,6 +761,29 @@ USB_RECESS_FLARE = 1.5   # 45 deg lead-in on the well's two SIDE walls at
                           # collar.
 
 USB_RECESS_BACK_X = BOARD_CONNECTOR_END_X + USB_OVERHANG + USB_PLUG_NOSE_GAP
+
+# The well as built so far is a straight tunnel: its inner boundary
+# (USB_RECESS_BACK_X) sits right at the connector's own face with nothing
+# between them, which means the open, top-breached well connects directly
+# to the board cavity -- looking in through the well, or through its open
+# top, there is nothing stopping a clear view (or a path for dust) straight
+# past the connector to the board and everything else inside. The collar
+# built above already provides the stock for a fix: it is solid material
+# all the way from USB_RECESS_BACK_X out to the wall, so leaving the first
+# USB_SEPTUM_T of it uncut -- instead of starting the wide/tall cable mouth
+# right at USB_RECESS_BACK_X -- leaves a wall there for free. A small
+# window then gets cut through just that septum, sized to the bare
+# connector rather than the cable (same margin _usb_cutter() already uses),
+# so only the connector's own footprint -- not the board behind it -- is
+# ever visible or reachable through the well.
+#
+# The cable's shell (narrow) still reaches the connector through that small
+# window same as before; only the fat overmoulded body is what actually
+# stops at the septum's outer face -- which is the point: a real cable's
+# body has its own shoulder right where the shell begins, so it seats
+# against a wall like this one rather than needing to fit inside the case.
+USB_SEPTUM_T = 1.2
+USB_RECESS_MOUTH_X0 = USB_RECESS_BACK_X + USB_SEPTUM_T
 USB_RECESS_HALF_W = USB_PLUG_W / 2
 # Centred on the connector's own mid-height, not on anything of the case's:
 # a plug's body is centred on its shell, and the shell is centred in the
@@ -769,8 +792,10 @@ USB_RECESS_HALF_W = USB_PLUG_W / 2
 USB_RECESS_FLOOR_Z = (BOARD_TOP_Z + USB_H / 2) - USB_PLUG_H / 2
 USB_RECESS_FLOOR_LOCAL = USB_RECESS_FLOOR_Z - PARTING_Z
 # Shell engagement the well actually buys back: everything the plug has to
-# give up is the nose gap, since its body can now follow the shell all the
-# way in.
+# give up is the nose gap, since the shell -- narrow enough to pass through
+# the septum's own connector-sized window -- can still follow all the way
+# in, even though the septum now stops the fat body at USB_RECESS_MOUTH_X0
+# rather than letting it ride the whole way down to USB_RECESS_BACK_X.
 USB_PLUG_ENGAGEMENT = USB_PLUG_SHELL_L - USB_PLUG_NOSE_GAP
 
 # The well is open at the TOP -- it breaks through the plate's top face
@@ -1160,9 +1185,12 @@ def insertion_shaft():
 
 
 def usb_plug_envelope():
-    """The volume a fully-seated USB-C cable plug needs, in global
-    coordinates: its overmoulded body from the connector's face (less the
-    nose gap) outward, past the case entirely.
+    """The volume a fully-seated USB-C cable plug's overmoulded BODY needs,
+    in global coordinates: from where the septum (_usb_septum_window_cutter())
+    stops it -- USB_RECESS_MOUTH_X0, not the connector's own face -- outward,
+    past the case entirely. The shell that actually reaches the connector is
+    narrower than the body and passes through the septum's own window, so it
+    is not what this envelope is checking.
 
     Not part of the assembly -- it's the probe verify.py pushes at the plate
     to prove the recess actually admits a cable, rather than trusting that
@@ -1171,8 +1199,8 @@ def usb_plug_envelope():
     return (
         cq.Workplane("XY")
         .workplane(offset=USB_RECESS_FLOOR_Z)
-        .center((USB_RECESS_BACK_X + OUTER_L / 2 + 10) / 2, 0)
-        .box(OUTER_L / 2 + 10 - USB_RECESS_BACK_X, USB_PLUG_W, USB_PLUG_H,
+        .center((USB_RECESS_MOUTH_X0 + OUTER_L / 2 + 10) / 2, 0)
+        .box(OUTER_L / 2 + 10 - USB_RECESS_MOUTH_X0, USB_PLUG_W, USB_PLUG_H,
              centered=(True, True, False))
     )
 
@@ -1270,14 +1298,15 @@ def _usb_cutter():
     """USB-C opening, in global coordinates.
 
     With the parting line just above the cell, this now falls entirely within
-    the plate, so cutting it from the base removes nothing. It is still cut
-    from both halves so the opening survives if the parting line is moved.
+    the plate, so cutting it from the base removes nothing today -- kept so
+    the opening survives if the parting line is ever moved back down to
+    where it would matter.
 
-    In the plate this cut is now fully contained inside the plug recess
-    (_usb_recess_cutter(), which is bigger in every direction and starts
-    further in), so it removes nothing there either. It is kept as the thing
-    that defines the *opening* independently of the recess -- move the
-    parting line down and the base needs it again.
+    No longer cut from the plate: _usb_septum_window_cutter() punches the
+    same size hole, but confined to the recess's own septum, rather than
+    reaching nearly 10mm inward the way this one does -- which would remove
+    the septum along with everything else it's meant to leave standing (see
+    build_plate()).
     """
     return (
         cq.Workplane("YZ")
@@ -1332,6 +1361,11 @@ def _usb_recess_cutter():
     the well proper, then flaring out at 45 deg over the last
     USB_RECESS_FLARE of the end wall to a wider mouth.
 
+    Starts at USB_RECESS_MOUTH_X0, not USB_RECESS_BACK_X -- the first
+    USB_SEPTUM_T of the collar, right where the connector actually is, is
+    deliberately left uncut here so _usb_septum_window_cutter() has a wall
+    to punch its own, much smaller hole through (see USB_SEPTUM_T).
+
     Extruding one polygon, rather than cutting a box and chamfering the
     result, keeps the mouth's lead-in exact and the boolean plain -- the
     same reasoning as the OLED window's bevel, just solved on the cutter
@@ -1344,14 +1378,14 @@ def _usb_recess_cutter():
     flare_x = face_x - USB_RECESS_FLARE
     out_x = face_x + 1.0          # past the face, so the cut breaks through
     pts = [
-        (USB_RECESS_BACK_X, hw),
+        (USB_RECESS_MOUTH_X0, hw),
         (flare_x, hw),
         (face_x, mouth_hw),
         (out_x, mouth_hw),
         (out_x, -mouth_hw),
         (face_x, -mouth_hw),
         (flare_x, -hw),
-        (USB_RECESS_BACK_X, -hw),
+        (USB_RECESS_MOUTH_X0, -hw),
     ]
     return (
         cq.Workplane("XY")
@@ -1359,6 +1393,29 @@ def _usb_recess_cutter():
         .polyline(pts)
         .close()
         .extrude(PLATE_DEPTH - USB_RECESS_FLOOR_LOCAL + 1.0)
+    )
+
+
+def _usb_septum_window_cutter():
+    """The connector-sized hole through the recess's own septum -- the
+    USB_SEPTUM_T of collar material left standing between USB_RECESS_BACK_X
+    (the connector's face) and USB_RECESS_MOUTH_X0 (where the wide cable
+    mouth starts) by _usb_recess_cutter() stopping short there.
+
+    Same size _usb_cutter() already uses (the bare connector plus a 1mm
+    margin) -- this is the same "just the connector, not the board" opening
+    that used to be the *only* USB cut, before the recess needed to reach
+    past it for a cable's fat overmould. Placed here, it goes back to doing
+    the one thing it was actually sized for: a window just big enough for
+    the connector's own shell, with everything else -- the board, the rest
+    of the cavity -- left covered by the septum around it.
+    """
+    return (
+        cq.Workplane("YZ")
+        .workplane(offset=USB_RECESS_BACK_X - 1.0)
+        .center(0, BOARD_TOP_Z + USB_H / 2 - PARTING_Z)
+        .rect(USB_W + 1.0, USB_H + 1.0)
+        .extrude(USB_SEPTUM_T + 2.0)
     )
 
 
@@ -1880,10 +1937,18 @@ def build_plate():
     # The USB-C plug recess, cut last: it breaks through the top face, so it
     # has to come after that face's own chamfer (which selects every edge on
     # the top face, and would otherwise pick up the well's mouth as well --
-    # the same reason the OLED window is cut after it).
+    # the same reason the OLED window is cut after it). Then the septum's
+    # own connector-sized window, through the collar material the recess cut
+    # deliberately left standing at its inner end (see USB_SEPTUM_T) -- this
+    # is what actually closes the well off from the board and the rest of
+    # the cavity, rather than plate.cut(_usb_cutter()) (used here up through
+    # the recess's first session, before the septum existed): that cutter
+    # reaches nearly 10mm past USB_RECESS_BACK_X, deep enough to remove the
+    # septum along with everything else, so it is no longer used on the
+    # plate -- only build_base() still cuts it, for its own, unrelated
+    # contribution to the shared opening.
     plate = plate.cut(_usb_recess_cutter())
-
-    return plate.cut(_usb_cutter().translate((0, 0, -PARTING_Z)))
+    return plate.cut(_usb_septum_window_cutter())
 
 
 # ---------------------------------------------------------------------------

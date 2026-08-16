@@ -545,6 +545,51 @@ check("plug recess clears the half-lap ledge",
       f"collar bottoms out {_r_floor_underside:.2f} mm above the parting "
       f"line, ledge tops out at {case.PLUG_LEDGE:.2f} mm")
 
+# The septum -- USB_SEPTUM_T of the collar deliberately left standing
+# between the connector's own face and the wide cable mouth -- is what
+# actually separates the well from the board and the rest of the cavity
+# behind it. Checked on all four sides of its own connector-sized window:
+# above, below, and to either side must be solid; the window itself must
+# be open.
+_sep_x0 = case.USB_RECESS_BACK_X + 0.05
+_sep_x1 = case.USB_RECESS_MOUTH_X0 - 0.05
+_sep_cx = (_sep_x0 + _sep_x1) / 2
+_sep_dx = _sep_x1 - _sep_x0
+_conn_cz = case.BOARD_TOP_Z + case.USB_H / 2
+_conn_hw = case.USB_W / 2 + 0.5   # same margin _usb_septum_window_cutter() uses
+_conn_hh = case.USB_H / 2 + 0.5
+for _name, _cy, _wy, _z0, _z1 in (
+    ("above its connector window", 0.0, 2 * _r_hw - 0.1,
+     _conn_cz + _conn_hh + 0.1, case.PARTING_Z + case.PLATE_DEPTH - 0.5),
+    ("below its connector window", 0.0, 2 * _r_hw - 0.1,
+     _r_floor, _conn_cz - _conn_hh - 0.1),
+    ("beside (+Y) its connector window", _conn_hw + (_r_hw - _conn_hw) / 2,
+     _r_hw - _conn_hw - 0.1, _conn_cz - _conn_hh, _conn_cz + _conn_hh),
+    ("beside (-Y) its connector window", -(_conn_hw + (_r_hw - _conn_hw) / 2),
+     _r_hw - _conn_hw - 0.1, _conn_cz - _conn_hh, _conn_cz + _conn_hh),
+):
+    _probe = (
+        cq.Workplane("XY")
+        .workplane(offset=_z0)
+        .center(_sep_cx, _cy)
+        .box(_sep_dx, _wy, _z1 - _z0, centered=(True, True, False))
+    )
+    _got = intersect_volume(plate, _probe)
+    check(f"USB septum is solid {_name}",
+          abs(_got - volume(_probe)) <= CLEAR_TOL * 10,
+          f"{_got:.2f} of {volume(_probe):.2f} mm^3 solid")
+
+_window_probe = (
+    cq.Workplane("XY")
+    .workplane(offset=_conn_cz - _conn_hh + 0.1)
+    .center(_sep_cx, 0)
+    .box(_sep_dx, case.USB_W, 2 * _conn_hh - 0.2, centered=(True, True, False))
+)
+_window_foul = intersect_volume(plate, _window_probe)
+check("septum window admits the bare connector",
+      _window_foul <= SLIVER_TOL,
+      f"{_window_foul:.3f} mm^3 blocking the window")
+
 print("Checking the button bridge...")
 # Post/arm max Y-reach must stay clear of the registration shoulder. The
 # post (BUTTON_POST_D) is the widest feature at the button end now that
@@ -938,7 +983,8 @@ print(f"  end chamfer         : run {case.END_CHAMFER_RUN:.2f} / rise "
 print(f"  stands on           : {case.BOTTOM_L:.2f} x {case.BOTTOM_W:.2f} mm")
 print(f"  board underside Z   : {case.BOARD_UNDER_Z:.2f} mm")
 print(f"  USB-C plug recess   : {case.USB_PLUG_W:.1f} wide x "
-      f"{case.OUTER_L / 2 - case.USB_RECESS_BACK_X:.2f} deep, floor at Z "
+      f"{case.OUTER_L / 2 - case.USB_RECESS_MOUTH_X0:.2f} deep mouth "
+      f"+ {case.USB_SEPTUM_T:.2f} septum, floor at Z "
       f"{case.USB_RECESS_FLOOR_Z:.2f}, open-topped")
 print(f"  base volume         : {volume(base) / 1000.0:.2f} cm^3")
 print(f"  plate volume        : {volume(plate) / 1000.0:.2f} cm^3")

@@ -84,7 +84,9 @@ The two halves divide the job cleanly:
     bevel on the face side of the display cutout** (see below).
   - A **recess for the USB-C cable's plug**, sunk into the +X end face
     between the two corner screws and walled off from the cavity by its own
-    collar (see "Reaching the USB-C connector" below).
+    collar, with a septum wall at the connector's own face closing the well
+    off from the board behind it except for a connector-sized window (see
+    "Reaching the USB-C connector" below).
 
 The **USB-C opening** falls entirely within the plate now that the parting
 line sits just above the cell, so cutting it from the base removes nothing.
@@ -912,6 +914,27 @@ the ceiling the plate is already solid across its whole footprint; the well
 just carves its channel through that top wall, and the material left either
 side of the channel *is* that wall.
 
+**The well still needs a front wall of its own, though — side walls and a
+floor aren't enough.** As first cut, the well's inner end sat right at the
+connector's own face with nothing between them: the open, top-breached well
+connected straight through to the board and the rest of the cavity behind
+it, which meant looking into the well — or through its open top — showed
+the board itself, not just the connector, and left no barrier against dust
+either. The fix reuses the collar stock that's already there: rather than
+cutting the wide/tall cable mouth all the way from the connector's face,
+`_usb_recess_cutter()` now stops `USB_SEPTUM_T` (1.2 mm) short of it, at
+`USB_RECESS_MOUTH_X0`. That leaves a thin **septum** standing across the
+well — and `_usb_septum_window_cutter()` punches just one hole through it:
+the same size `_usb_cutter()` always used, the bare connector plus a 1 mm
+margin, not the cable. The cable's fat overmoulded body seats against this
+septum (real plug bodies step down to their shell right at that point
+anyway); the narrow shell continues on through the window to reach the
+connector. Past the septum, only the connector's own footprint is ever
+visible or reachable through the well — the board behind it stays covered.
+Because the plate no longer needs `_usb_cutter()`'s own full-depth cut (it
+would remove the septum along with everything else), only `build_base()`
+still applies it, for its own unrelated contribution to the shared opening.
+
 **The well is open at the top**, and that isn't a shortcut — it's forced.
 The connector's top face is flush with the ceiling (`CEILING_CLEARANCE ==
 USB_H`), which leaves one `WALL` of top wall over it, and `FACE_CHAMFER`
@@ -930,11 +953,14 @@ selects every edge on the top face, and would otherwise pick up the well's
 mouth as well. Same ordering constraint the OLED window has.
 
 `verify.py` pushes a mock of a fully-seated plug body
-(`usb_plug_envelope()`) at the built plate and requires zero contact — the
-recess is checked against a *cable*, not against the constants that shaped
-the cutter — then probes the collar's two side walls and its floor
-directly to confirm the cavity is still closed off, and that the flared
-mouth still clears the corner screw posts.
+(`usb_plug_envelope()`, stopping at `USB_RECESS_MOUTH_X0` now that the
+septum is what actually stops it) at the built plate and requires zero
+contact — the recess is checked against a *cable*, not against the
+constants that shaped the cutter — then probes the collar's two side walls
+and its floor, and separately the septum on all four sides of its own
+window (open only where the connector needs to pass), to confirm the well
+is closed off everywhere except that one hole, and that the flared mouth
+still clears the corner screw posts.
 
 ## Verifying fit
 
@@ -999,8 +1025,10 @@ battery/solar connectors on the underside) and the SMA bulkhead connector
   it anywhere; the shell engagement the recess buys back is checked against
   the depth a plain window through the face would have given; the collar's
   two side walls and its floor are probed to confirm the cavity is still
-  closed off; and the flared mouth is checked to clear both the corner
-  screw posts and the half-lap ledge.
+  closed off; the flared mouth is checked to clear both the corner screw
+  posts and the half-lap ledge; and the septum is probed on all four sides
+  of its own connector-sized window (open) to confirm it is otherwise solid,
+  so the well never has a clear path to the board behind it.
 
 All checks currently pass. Key measured clearances (run `make verify` for
 the live numbers — this table is a hand-maintained snapshot and can drift):
@@ -1021,7 +1049,7 @@ the live numbers — this table is a hand-maintained snapshot and can drift):
 | Board pocket edge vs. +X corner boss | 33.30 vs 33.60 mm |
 | USB-C connector face vs. inner wall | 2.06 mm (was 17.65 mm before this file's first session — see "How the board can be tangent to the boss with zero clearance" below) |
 | USB-C plug shell engagement | 6.20 mm of 6.50 (a plain window through the face gives 2.24) |
-| USB-C plug recess | 12.40 mm wide × 3.96 deep, open-topped, floor at Z=35.20 |
+| USB-C plug recess | 12.40 mm wide × 2.76 mm deep mouth + 1.2 mm septum, open-topped, floor at Z=35.20 |
 | Ceiling clearance (USB-C, flush) | 3.30 mm |
 | OLED module protrusion past outer face | 0.10 mm |
 | Plug wall / depth | 1.60 mm × 3.00 mm (1.9:1) |
@@ -1058,6 +1086,7 @@ positions.
 | `OLED_CENTER_X`, `OLED_MODULE_EDGE_GAP` | Where the module sits along the board — cross-checked against the photo's own "17.5mm, USB edge to OLED edge" callout, but only to hand-measurement precision |
 | `USB_W`, `USB_H`, `USB_DEPTH` | USB-C body size and position — `USB_H` (3.3 mm) now sets the plate's ceiling height directly, since it's the tallest component the ceiling still has to clear |
 | `USB_PLUG_W`, `USB_PLUG_H`, `USB_PLUG_SHELL_L` | **Your actual cable**, not the board — these size the plug recess (see "Reaching the USB-C connector"). Defaults are the biggest bodies the Type-C overmould envelope allows, so a slimmer cable just has room to spare; measure yours if it's an unusually chunky one |
+| `USB_SEPTUM_T` | Thickness of the wall left between the recess and the board cavity, with only the bare connector's own footprint let through it — grow this if your printer needs more than 1.2mm to bridge the connector-sized window reliably |
 | `UFL_FROM_END` | u.FL connector position |
 | `SMA_WASHER_OD` | The one connector dimension not on the datasheet — sizes `SMA_NOTCH_R` and how much margin is left to the board's far edge (2.75mm) |
 | `CELL_D`, `CELL_L` | Your actual 26650 (varies with wrap / protection PCB) |
@@ -1118,7 +1147,10 @@ Writes to `output/`:
 - The USB-C plug recess needs no support either: printed window-up, its
   floor is a flat bridge between the collar's two side walls (12.4 mm,
   the same span the USB opening's own underside already bridges), and the
-  well is open at the top so nothing spans over it at all.
+  well is open at the top so nothing spans over it at all. The septum's own
+  connector-sized window is a smaller version of the same bridge the
+  original (pre-recess) USB opening already used — well within what FDM
+  handles unsupported.
 - The base is ~24 cm³ of enclosed volume including the cradle pedestal —
   print it with modest infill rather than solid.
 - The bottom chamfers print as 45° expanding overhangs straight off the
