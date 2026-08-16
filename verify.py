@@ -579,11 +579,18 @@ for _name, _cy, _wy, _z0, _z1 in (
           abs(_got - volume(_probe)) <= CLEAR_TOL * 10,
           f"{_got:.2f} of {volume(_probe):.2f} mm^3 solid")
 
+# Pill-shaped probe (not a rectangle) matching the bare connector's own
+# footprint -- a rectangular probe would clip the cutter's own rounded
+# corners and register a false "blocked" reading now that the window
+# itself is pill-shaped (see USB_W/USB_H below vs. the cutter's own
+# USB_W+1 / USB_H+1: same cap centres, uniformly inset by the 0.5mm margin
+# on each side).
 _window_probe = (
-    cq.Workplane("XY")
-    .workplane(offset=_conn_cz - _conn_hh + 0.1)
-    .center(_sep_cx, 0)
-    .box(_sep_dx, case.USB_W, 2 * _conn_hh - 0.2, centered=(True, True, False))
+    cq.Workplane("YZ")
+    .workplane(offset=_sep_x0)
+    .center(0, _conn_cz)
+    .slot2D(case.USB_W, case.USB_H)
+    .extrude(_sep_dx)
 )
 _window_foul = intersect_volume(plate, _window_probe)
 check("septum window admits the bare connector",

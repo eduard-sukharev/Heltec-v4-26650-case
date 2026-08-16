@@ -1307,12 +1307,18 @@ def _usb_cutter():
     reaching nearly 10mm inward the way this one does -- which would remove
     the septum along with everything else it's meant to leave standing (see
     build_plate()).
+
+    Pill-shaped (slot2D), not a plain rectangle -- flat top and bottom,
+    semicircular caps on the two short (Y) ends, matching the real
+    connector's own moulded outline rather than a generic rectangular
+    window. See _usb_septum_window_cutter() for the same shape actually in
+    use today.
     """
     return (
         cq.Workplane("YZ")
         .workplane(offset=OUTER_L / 2 + 2)
         .center(0, BOARD_TOP_Z + USB_H / 2)
-        .rect(USB_W + 1.0, USB_H + 1.0)
+        .slot2D(USB_W + 1.0, USB_H + 1.0)
         .extrude(-(WALL + 8))
     )
 
@@ -1409,12 +1415,16 @@ def _usb_septum_window_cutter():
     the one thing it was actually sized for: a window just big enough for
     the connector's own shell, with everything else -- the board, the rest
     of the cavity -- left covered by the septum around it.
+
+    Pill-shaped (slot2D: flat top/bottom, semicircular caps on the Y ends)
+    rather than a plain rectangle, so the one visible opening in the recess
+    reads as an actual USB-C port outline instead of a generic slot.
     """
     return (
         cq.Workplane("YZ")
         .workplane(offset=USB_RECESS_BACK_X - 1.0)
         .center(0, BOARD_TOP_Z + USB_H / 2 - PARTING_Z)
-        .rect(USB_W + 1.0, USB_H + 1.0)
+        .slot2D(USB_W + 1.0, USB_H + 1.0)
         .extrude(USB_SEPTUM_T + 2.0)
     )
 

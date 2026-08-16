@@ -926,11 +926,14 @@ cutting the wide/tall cable mouth all the way from the connector's face,
 `USB_RECESS_MOUTH_X0`. That leaves a thin **septum** standing across the
 well — and `_usb_septum_window_cutter()` punches just one hole through it:
 the same size `_usb_cutter()` always used, the bare connector plus a 1 mm
-margin, not the cable. The cable's fat overmoulded body seats against this
-septum (real plug bodies step down to their shell right at that point
-anyway); the narrow shell continues on through the window to reach the
-connector. Past the septum, only the connector's own footprint is ever
-visible or reachable through the well — the board behind it stays covered.
+margin, not the cable. Both are cut **pill-shaped** (`slot2D`) rather than
+as plain rectangles — flat top and bottom, semicircular caps on the two Y
+ends — matching the real connector's own moulded outline instead of a
+generic slot. The cable's fat overmoulded body seats against this septum
+(real plug bodies step down to their shell right at that point anyway);
+the narrow shell continues on through the window to reach the connector.
+Past the septum, only the connector's own footprint is ever visible or
+reachable through the well — the board behind it stays covered.
 Because the plate no longer needs `_usb_cutter()`'s own full-depth cut (it
 would remove the septum along with everything else), only `build_base()`
 still applies it, for its own unrelated contribution to the shared opening.
