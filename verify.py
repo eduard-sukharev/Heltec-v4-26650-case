@@ -255,20 +255,23 @@ for conn_x, name in ((case.GPS_CONN_X, "GPS"), (case.POWER_CONN_X, "battery/sola
     check(f"retainer reaches the {name} connector's contact height", v > 0.05,
           f"{v:.3f} mm^3 of retainer at the connector's underside")
 
-# The retainer's own mounting ears must actually have a boss to screw into
-# -- same "boss intact" volume-comparison pattern used for the case screw
-# bosses: build the expected solid (ear block minus the pilot bore, minus
-# the four rounded corners) and compare it against what's actually there.
-# Width comes from _retainer_pocket_x_range(), not a flat RETAINER_EAR_LEN:
-# the boss is built to the same width as the ear-notch pocket it roofs, and
-# the POWER_CONN_X one is wider still, stretched out to merge with the +X
-# corner screw boss instead of leaving a gap next to it.
+# The retainer's own mounting ears must actually have a boss to jam
+# against -- same "boss intact" volume-comparison pattern used for the case
+# screw bosses: build the expected solid (a plain ear block, minus the four
+# rounded corners -- there is no screw bore any more, the plate/retainer/lid
+# stack is close enough that the ears are simply jammed between the halves)
+# and compare it against what's actually there. Width comes from
+# _retainer_pocket_x_range(), not a flat RETAINER_EAR_LEN: the boss is built
+# to the same width as the ear-notch pocket it roofs, and the POWER_CONN_X
+# one is wider still, stretched out to merge with the +X corner screw boss
+# instead of leaving a gap next to it.
 _boss_cy = case.RETAINER_BOSS_CY
 _boss_w = case.RETAINER_BOSS_Y1 - case.RAIL_OUTER_Y
 _r = case.RETAINER_EAR_FILLET
+_boss_depth = case.BOARD_TOP_LOCAL - (case.BOARD_UNDER_LOCAL - case.CONN_H)
 # Only the two INBOARD corners are rounded now -- the outboard pair is
 # square (see _retainer_pocket_sharp_corners), so half the old corner loss.
-_fillet_loss = (2 * _r * _r - math.pi * _r * _r / 2) * case.RETAINER_SCREW_ENGAGE
+_fillet_loss = (2 * _r * _r - math.pi * _r * _r / 2) * _boss_depth
 for conn_x, merge_corner in case.RETAINER_CONNECTORS:
     bx0, bx1 = case._retainer_pocket_x_range(conn_x, merge_corner)
     for sign in (1, -1):
@@ -278,11 +281,9 @@ for conn_x, merge_corner in case.RETAINER_CONNECTORS:
             .workplane(offset=case.BOARD_UNDER_Z - case.CONN_H)
             .center((bx0 + bx1) / 2, py)
             .rect(bx1 - bx0, _boss_w)
-            .extrude(case.RETAINER_SCREW_ENGAGE)
+            .extrude(_boss_depth)
         )
-        want_v = (volume(block)
-                  - math.pi * (case.RETAINER_SCREW_PILOT_D / 2) ** 2 * case.RETAINER_SCREW_ENGAGE
-                  - _fillet_loss)
+        want_v = volume(block) - _fillet_loss
         got_v = intersect_volume(plate, block)
         # Each FREE boss end gets a concave blend fillet into the side wall
         # (RETAINER_BOSS_WALL_FILLET, see build_plate()), which *adds* a
@@ -293,7 +294,7 @@ for conn_x, merge_corner in case.RETAINER_CONNECTORS:
         # it runs into the corner post instead.
         _n_free = 1 if merge_corner else 2
         _cove_allow = (_n_free * case.RETAINER_BOSS_WALL_FILLET ** 2
-                       * case.RETAINER_SCREW_ENGAGE)
+                       * _boss_depth)
         # One-sided above once the boss window itself already reaches the
         # corner post (merge_corner's max() becomes a no-op there, see
         # _retainer_ear_x_range): the post's own material can then spill an

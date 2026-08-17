@@ -9,10 +9,12 @@ Three-piece design:
   - PLATE half:      face plate with the OLED window; carries a wide
                      registration shoulder the board's top face rests
                      against, plus the mounting bosses for the retainer.
-  - RETAINER plank:  a separate printed part, screwed to the plate after the
-                     board is set on the shoulder. Presses up against the
-                     GPS and battery/solar connector housings on the
-                     board's underside to keep it from falling back out.
+  - RETAINER plank:  a separate printed part, jammed between the plate's
+                     mounting bosses and the closed lid after the board is
+                     set on the shoulder -- no fastener, the stack leaves it
+                     no room to move. Presses up against the GPS and
+                     battery/solar connector housings on the board's
+                     underside to keep it from falling back out.
 
 The cell lies along the case's long axis, centred directly *underneath* the
 board. Because the cell is both wider and longer than the board, anything
@@ -58,8 +60,8 @@ BOARD_CLEARANCE = 0.4    # slack around the board footprint
 # is derived from a 128x64 panel at the dimensioned active width.
 OLED_ACTIVE_W = 27.28
 OLED_ACTIVE_H = OLED_ACTIVE_W * 64.0 / 128.0    # = 13.64
-OLED_MODULE_W = 33.28
-OLED_MODULE_H = 18.56
+OLED_MODULE_W = 33.2
+OLED_MODULE_H = 19.0
 OLED_MODULE_THICK = 5.6      # module height above the PCB top face, measured
                               # -- taller than every other top-side
                               # component, so it's deliberately excluded
@@ -69,7 +71,7 @@ OLED_MODULE_THICK = 5.6      # module height above the PCB top face, measured
                               # window cutout and out past the top wall.
                               # See "Why the ceiling no longer clears the
                               # OLED module" in README.md.
-OLED_WINDOW_MARGIN = 0.6     # window opens this much larger than the module, all
+OLED_WINDOW_MARGIN = 0.2     # window opens this much larger than the module, all
                               # round, so the whole module (frame + corner screws)
                               # can show through -- not just the active glass.
 OLED_WINDOW_W = OLED_MODULE_W + 2 * OLED_WINDOW_MARGIN
@@ -280,7 +282,7 @@ MIN_BOTTOM_L = 50.0         # flat length the case stands on
 # large flanks run out against the end walls -- gets the same small break.
 PROFILE_EDGE_CHAMFER = 1.0
 
-# --- Board retention (shoulder + screwed-on retainer plank) -----------------
+# --- Board retention (shoulder + jammed-in retainer plank) ------------------
 # The board has no mounting holes (confirmed off the real board photo), so it
 # can't hang from screw posts. An earlier revision tried a slide-under lip
 # along both long edges instead: lift the board into the plate from its open
@@ -296,8 +298,9 @@ PROFILE_EDGE_CHAMFER = 1.0
 # lifted straight up into it from the plate's open underside, no sliding
 # involved. What stops the board falling back out is a *separate* printed
 # retainer plank (see RETAINER_* below and build_retainer()), installed
-# after the board by hand and then screwed to two bosses hanging off the
-# shoulder. It presses up against the GPS and battery/solar connector
+# after the board by hand and then jammed between two bosses hanging off the
+# shoulder and the closed lid -- no fastener, the assembled stack leaves it
+# no room to move. It presses up against the GPS and battery/solar connector
 # housings on the board's underside, not the PCB edge -- so it never has to
 # slide past the board either, only move straight up into contact. The base
 # is not involved at all -- the cell's bore underlies the board's whole
@@ -680,7 +683,7 @@ button_positions = [(BUTTON_CENTER_X, BUTTON_Y), (BUTTON_CENTER_X, -BUTTON_Y)]
 # themselves) is what stops the bridge from being pushed straight through --
 # the same role a rivet's far-side head plays, just on the inside instead of
 # a recessed head on the outside.
-BUTTON_POST_D = 3.0             # constant diameter, arm to outer face
+BUTTON_POST_D = 4.0             # constant diameter, arm to outer face
 BUTTON_HOLE_CLEARANCE = 0.3     # diametral, post in its ceiling hole
 BUTTON_HOLE_D = BUTTON_POST_D + BUTTON_HOLE_CLEARANCE
 BUTTON_PLUNGER_TRAVEL = 0.2     # dead-gap left between the bridge's foot and
@@ -844,9 +847,10 @@ GPS_CONN_X = BOARD_FAR_END_X + CONN_GPS_EDGE_GAP + CONN_W / 2
 POWER_CONN_X = BOARD_CONNECTOR_END_X - CONN_BAT_SOLAR_EDGE_GAP - CONN_W / 2
 
 # --- Retainer plank (see "Board retention" above) ---------------------------
-# A separate printed part, screwed to two bosses hanging off the plate's own
-# registration shoulder. It presses up against the GPS and battery/solar
-# connector housings on the board's underside -- not the bare PCB -- so its
+# A separate printed part, jammed between two bosses hanging off the plate's
+# own registration shoulder and the closed lid. It presses up against the
+# GPS and battery/solar connector housings on the board's underside -- not
+# the bare PCB -- so its
 # contact height is set by CONN_H, not by BOARD_T.
 RETAINER_MARGIN = 3.0        # clear length kept past each connector's own
                               # footprint, at both ends of the plank
@@ -874,25 +878,18 @@ RETAINER_EAR_LEN = 4.0        # X length of each mounting ear/boss pair --
                                # between RAIL_OUTER_Y and RETAINER_BOSS_Y1
                                # (see build_plate()), so they need no
                                # separate diameter/Y-position of their own.
-                               # Kept just wide enough for the pilot hole
-                               # (M2_PILOT_D) plus a real wall on each side.
 RETAINER_EAR_FILLET = 0.8      # rounds the ear/boss/notch corners on both
                                 # the retainer and the plate -- must stay
                                 # under half of every rectangle's shortest
                                 # side (the boss dead zone is only
                                 # RAIL_OUTER_Y..RETAINER_BOSS_Y1)
-RETAINER_SCREW_SHAFT_D = M2_SHAFT_D
-RETAINER_SCREW_PILOT_D = M2_PILOT_D
-RETAINER_SCREW_ENGAGE = 4.0   # pilot hole depth into the boss
 
 # The bare dead zone between the board's pocket edge (RAIL_OUTER_Y) and the
-# wall's inner face (SHOULDER_OUTER_Y) is only 2.45mm wide. Centred in that,
-# the retainer's own screw leaves almost no wall: the ear's M2 clearance
-# hole (M2_SHAFT_D=2.2mm) is nearly as wide as the whole zone, down to
-# ~0.125mm of plastic on either side of it -- not printable, and not a real
-# hole once printed (it breaks out to the ear's own edge). The plate-side
-# boss's pilot hole (M2_PILOT_D=1.6mm) fares better but is still thin
-# (~0.425mm/side) on its unbacked (board-pocket) face.
+# wall's inner face (SHOULDER_OUTER_Y) is only 2.45mm wide -- not much wall
+# to work with. There is no screw here: the plate, retainer and lid stack
+# with zero spare clearance between them, so the retainer's ears are simply
+# jammed between the plate's mounting bosses and the closed lid once the
+# case is assembled, no fastener needed.
 #
 # Recessing the dead zone's outboard edge into the side wall (which is
 # WALL=2.2mm thick outboard of SHOULDER_OUTER_Y) buys width without
@@ -933,9 +930,7 @@ RETAINER_BOSS_WALL_FILLET = 0.4  # concave fillet blending a retainer boss
 # parts couldn't both exist there once assembled. If its plain, centred
 # window would reach that far, the whole window is slid back (kept the
 # same length, just moved off-centre from conn_x) until it just clears the
-# post -- its screw hole stays at the true conn_x regardless, since that's
-# cut separately and only needs to land somewhere inside the ear, not at
-# its centre.
+# post.
 _CORNER_BOSS_NEAR_X = OUTER_L / 2 - SCREW_INSET - M2_BOSS_D / 2
 RETAINER_EAR_MERGE_OVERLAP = 0.1   # guaranteed overlap for a clean union,
                                      # not just an exact (fragile) tangent
@@ -992,7 +987,7 @@ def _retainer_ear_x_range(conn_x, merge_corner):
     else:
         # Retainer's own ear: must never enter the post's footprint. Slide
         # the whole window back instead of shrinking it, so it keeps its
-        # full RETAINER_EAR_LEN width for the screw hole and fillets.
+        # full RETAINER_EAR_LEN width for the fillets.
         limit = _CORNER_BOSS_NEAR_X - RETAINER_EAR_CORNER_MARGIN
         if x1 > limit:
             shift = x1 - limit
@@ -1535,8 +1530,8 @@ def _retainer_ear_notch():
     line into the solid outer wall, cutting a visible pocket that was never
     actually needed. RETAINER_BOSS_Y1 itself is *not* the wall's bare inner
     face (SHOULDER_OUTER_Y) any more -- it is recessed RETAINER_BOSS_RECESS
-    past it, on purpose, to give the retainer's own screw hole a real wall
-    (see RETAINER_BOSS_RECESS)."""
+    past it, on purpose, to give the boss/ear a real wall on its outboard
+    side (see RETAINER_BOSS_RECESS)."""
     retainer_top_local = BOARD_UNDER_LOCAL - CONN_H
     z0 = -PLUG_DEPTH - 1.0
     z1 = retainer_top_local
@@ -1777,8 +1772,9 @@ def build_plate():
     # keeps the USB-C connector registered against the case's cutout.
     #
     # What stops the board falling back out again is the separate retainer
-    # plank (build_retainer()), screwed to the two bosses added below, which
-    # press up against the underside connectors once the board is in place.
+    # plank (build_retainer()), jammed against the two bosses added below,
+    # which press up against the underside connectors once the board is in
+    # place.
     rail_x0 = BOARD_FAR_END_X - 1.0
     rail_x1 = BOARD_CONNECTOR_END_X
     rail_len = rail_x1 - rail_x0
@@ -1886,15 +1882,6 @@ def build_plate():
                     boundingbox=True,
                 ))
             plate = plate.edges(_sel).fillet(RETAINER_BOSS_WALL_FILLET)
-            # The screw itself stays near the connector, not shifted out to
-            # the merged corner -- only the surrounding block is stretched.
-            plate = plate.cut(
-                cq.Workplane("XY")
-                .workplane(offset=boss_z0)
-                .center(conn_x, sign * boss_cy)
-                .circle(RETAINER_SCREW_PILOT_D / 2)
-                .extrude(RETAINER_SCREW_ENGAGE)
-            )
 
     # The half-lap ledge (solid Z 0 -> PLUG_LEDGE at this same outboard Y
     # band, see PLUG_LEDGE below) would otherwise foul the retainer's ears,
@@ -2116,9 +2103,10 @@ def build_retainer():
 
     Installed after the board is lifted into the shoulder: held up by hand
     against the GPS and battery/solar connector housings on the board's
-    underside, then screwed to the two boss pairs hanging off the shoulder.
-    Two ears per connector position reach out from the plank's own body to
-    the mounting bosses, each carrying a clearance hole for the screw.
+    underside, then jammed against the two boss pairs hanging off the
+    shoulder -- no fastener, since the assembled base/plate/retainer stack
+    leaves it no room to move. Two ears per connector position reach out
+    from the plank's own body to the mounting bosses.
     """
     top_z = BOARD_UNDER_Z - CONN_H
     plank = (
@@ -2136,8 +2124,8 @@ def build_retainer():
     # had) without making the ear as wide as the whole half-plate the way
     # reaching all the way back to the centreline would. RETAINER_BOSS_Y1
     # (not the bare wall face SHOULDER_OUTER_Y) is what actually matters
-    # here: it is what gives the ear's own clearance hole a real wall on
-    # its outboard side (see RETAINER_BOSS_RECESS).
+    # here: it is what gives the ear a real wall to butt against on its
+    # outboard side (see RETAINER_BOSS_RECESS).
     ear_y0 = RETAINER_WIDTH / 2 - 1.0
     ear_y1 = RETAINER_BOSS_Y1
     ear_cy = (ear_y0 + ear_y1) / 2
@@ -2164,13 +2152,6 @@ def build_retainer():
                 .fillet(RETAINER_EAR_FILLET)
             )
             plank = plank.union(ear)
-            plank = plank.cut(
-                cq.Workplane("XY")
-                .workplane(offset=top_z - RETAINER_THICKNESS - 0.5)
-                .center(conn_x, sign * RETAINER_BOSS_CY)
-                .circle(RETAINER_SCREW_SHAFT_D / 2)
-                .extrude(RETAINER_THICKNESS + 1.0)
-            )
     return plank
 
 

@@ -69,11 +69,13 @@ The two halves divide the job cleanly:
     shoulder registers the board's X/Y position and carries its top face,
     attached to both the plate's own wall and its ceiling. What stops the
     board falling back out is a **separate printed retainer plank**,
-    installed after the board and screwed to two bosses hanging off the
-    shoulder, which presses up against the GPS and battery/solar connector
-    housings on the board's underside. Small preload dimples on the
-    shoulder take up the Z slack so the board doesn't rattle once the
-    retainer is screwed home. See "Board retention" below.
+    installed after the board and jammed against two bosses hanging off
+    the shoulder, which presses up against the GPS and battery/solar
+    connector housings on the board's underside. There is no fastener
+    here — the assembled base/plate/retainer stack leaves the plank no
+    room to move. Small preload dimples on the shoulder take up the Z
+    slack so the board doesn't rattle once the case is closed. See "Board
+    retention" below.
   - Four M2 clearance holes with socket-head counterbores, each over a
     **post** the screw head bears on.
   - A **plug** hanging below the flange that drops into the base cavity.
@@ -346,16 +348,17 @@ features` and `base carries no retainer-support features either` checks.
 
 - Assembly order is: drop the cell into the base → lift the board up into
   the plate's shoulder from its open underside → hold the retainer plank up
-  against the board's underside connectors and screw it to the plate → lower
-  the plate (now carrying the board) onto the base → four case screws.
-- The board is retained by a shoulder + screwed-on retainer plank (see
+  against the board's underside connectors, against the plate's bosses →
+  lower the plate (now carrying the board and retainer) onto the base →
+  four case screws, which close the stack up and jam the retainer in place.
+- The board is retained by a shoulder + jammed-in retainer plank (see
   below) rather than screws into the PCB — nothing threads into the board
-  itself.
+  itself, and nothing threads into the retainer either.
 - The GPS/battery/solar connectors sit with **2.70 mm** of clearance to the
   cell, tighter than the coin-cell holder's 6.2 mm since they protrude less
   (`CONN_H` = 3.5 mm vs. the holder's 5.6 mm).
 
-### Board retention: shoulder + screwed-on retainer plank, no PCB holes
+### Board retention: shoulder + jammed-in retainer plank, no PCB holes
 
 The real board (confirmed against `reference/heltec_v4_top.JPG`) has **no
 mounting holes anywhere** — the USB-C end is just header pins, two tactile
@@ -401,21 +404,20 @@ retainer plank (`build_retainer()`), installed *after* the board:
   they stay part of the same connected solid, unlike the old lip) to two
   bosses that hang off the *underside of the shoulder itself* — the same
   wall+ceiling-supported structure, just extended down locally at the two
-  connector X positions. The bare dead zone between the board's own pocket
-  edge and the wall's inner face is only 2.45 mm — too narrow for a free
-  round boss, and too narrow to give the retainer's own M2 screw hole
-  (2.2 mm clearance) any real wall once centred in it (~0.125 mm/side,
-  not printable). `RETAINER_BOSS_RECESS` (1.0 mm) pushes the dead zone's
-  outboard edge that much further into the side wall — which is `WALL`
+  connector X positions. There is no fastener here at all: the plate, the
+  retainer's ears, and the closed lid stack with zero spare Z clearance
+  between them, so the ears are simply jammed in place once the case is
+  assembled — no screw, no screw hole. The bare dead zone between the
+  board's own pocket edge and the wall's inner face is only 2.45 mm — too
+  narrow for a free round boss. `RETAINER_BOSS_RECESS` (1.0 mm) pushes the
+  dead zone's outboard edge further into the side wall — which is `WALL`
   (2.2 mm) thick there, so 1.2 mm of true outer skin still survives —
-  widening the zone to 3.45 mm and the hole's wall to a printable
-  ~0.6–0.9 mm/side. Each boss is a block (`RETAINER_EAR_LEN` = 4.0 mm long)
-  that exactly fills that (now recessed) gap. Both the ears and the bosses
-  are kept as narrow as the screw hardware allows and carry a
-  `RETAINER_EAR_FILLET` (0.8 mm) round on their exposed vertical corners —
-  the surfaces that actually merge into the wall or ceiling lose nothing
-  from the fillet (the union just absorbs it), only the corners facing open
-  cavity actually show it.
+  widening the zone to 3.45 mm. Each boss is a block (`RETAINER_EAR_LEN` =
+  4.0 mm long) that exactly fills that (now recessed) gap. Both the ears
+  and the bosses carry a `RETAINER_EAR_FILLET` (0.8 mm) round on their
+  exposed vertical corners — the surfaces that actually merge into the
+  wall or ceiling lose nothing from the fillet (the union just absorbs
+  it), only the corners facing open cavity actually show it.
 - The plate's half-lap ledge *and* the plug beneath it are solid right where
   the ears cross them, so both are notched locally at all four ear
   positions (`_retainer_ear_notch()`), the same pattern already used for
@@ -434,13 +436,13 @@ retainer plank (`build_retainer()`), installed *after* the board:
   symmetric margin that overshot 0.5 mm past that line into the solid outer
   wall, cutting a pocket that was never actually needed to clear anything.
 - Because the retainer only ever moves straight up (first by hand, into
-  contact with the connectors, then via the screws drawing it flush against
+  contact with the connectors, then held there once the lid closes over
   its bosses), it never has to slide past the board or thread around
   anything — the board's own length is irrelevant to the move.
 - **Preload dimples** (`PRELOAD_BUMP_INTERFERENCE`, 0.2 mm) on the shoulder
   are deliberately oversized by that much and get elastically compressed as
-  the retainer's screws draw the board up against the shoulder, taking up
-  the design's Z slack so it doesn't rattle. `verify.py` gives the
+  the assembled stack (base + plate + retainer) closes up, taking up the
+  design's Z slack so it doesn't rattle. `verify.py` gives the
   `plate`/`board` pair a wider, explicitly-bounded tolerance for exactly
   this designed overlap.
 
@@ -1151,8 +1153,9 @@ Writes to `output/`:
 
 - `heltec_v4_case_base.stl` / `.step`
 - `heltec_v4_case_plate.stl` / `.step`
-- `heltec_v4_case_retainer.stl` / `.step` — the third printable part, screwed
-  to the plate after the board (see "Board retention" above)
+- `heltec_v4_case_retainer.stl` / `.step` — the third printable part,
+  jammed between the plate's bosses and the closed lid after the board is
+  in place (see "Board retention" above)
 - `heltec_v4_case_button_bridge.stl` / `.step` — the fourth printable part,
   dropped into the plate's two button holes (see "The two buttons and
   their bridge" above)
@@ -1186,12 +1189,12 @@ Writes to `output/`:
 - The case screws are **M2×16** — long enough to cross the plate's post and
   bite 5.0 mm into the base boss. The board itself has no screws at all —
   see "Board retention" above.
-- The retainer plank takes **four short M2 screws** (`RETAINER_SCREW_ENGAGE`
-  = 4.0 mm of pilot depth is enough for something much shorter than the
-  case screws, e.g. M2×6) into the four bosses hanging off the plate's
-  shoulder. Print the retainer flat, in whatever orientation is convenient —
-  it's a separate small part, so it isn't bound to the plate's own
-  window-up orientation.
+- The retainer plank takes **no fasteners at all** — its four ears simply
+  jam between the four bosses hanging off the plate's shoulder and the
+  closed lid; there's no clearance left once the case screws draw the
+  stack shut. Print the retainer flat, in whatever orientation is
+  convenient — it's a separate small part, so it isn't bound to the
+  plate's own window-up orientation.
 - The SMA connector's own fixed nut clamps it to the plate from the inside
   (see "Adding the SMA connector" above) — no separate jam nut needed on
   the panel side, and `SMA_NUT_AF` is now actually used, for the nut mock's
